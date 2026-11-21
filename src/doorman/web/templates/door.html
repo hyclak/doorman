@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}{{ snap.label }}{% endblock %}
+{% block main_class %}page door-page{% endblock %}
+{% block content %}
+<div class="door-layout">
+  <div class="door-col">
+    {% include "partials/door_panel.html" %}
+    {% if dev_mode %}
+    <div class="card dev">
+      <p class="eyebrow">Development</p>
+      <p class="hint">Simulated door. Set the reed switch directly:</p>
+      <div class="row">
+        <button class="btn-secondary" data-dev-reed="closed">Reed: closed</button>
+        <button class="btn-secondary" data-dev-reed="open">Reed: open</button>
+        <button class="btn-ghost" data-dev-reed="sim">Back to simulator</button>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% if not ctx.is_guest %}
+  <div class="side-col">
+    <section class="card" aria-labelledby="activity-h">
+      <h2 id="activity-h">Recent activity</h2>
+      <div id="activity-panel" data-refresh="/activity" data-interval="10000">{% include "partials/activity.html" %}</div>
+      {% if ctx.is_admin %}<p><a href="/admin/audit?filter=door">Full history</a></p>{% endif %}
+    </section>
+    <section class="card" aria-labelledby="stats-h">
+      <h2 id="stats-h">Garage Pi</h2>
+      <div id="stats-panel" data-refresh="/stats" data-interval="15000">{% include "partials/stats.html" %}</div>
+    </section>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

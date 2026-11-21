@@ -1,0 +1,68 @@
+{% extends "admin/base.html" %}
+{% from "macros.html" import csrf_field, post_button, window_form, windows_list with context %}
+{% block title %}{{ u.username }}{% endblock %}
+{% block admin %}
+<header class="page-head">
+  <p><a href="/admin/users">← Users</a></p>
+  <h1>{{ u.display_name or u.username }}</h1>
+  <p class="muted">@{{ u.username }} · {{ role_labels[u.role] }}{% if u.disabled %} · disabled{% endif %}</p>
+</header>
+
+<div class="cols">
+<section class="card" aria-labelledby="acct-h">
+  <h2 id="acct-h">Account</h2>
+  <form method="post" action="/admin/users/{{ u.id }}" class="stack">
+    {{ csrf_field() }}
+    <label>Display name<input name="display_name" value="{{ u.display_name }}" maxlength="60"></label>
+    <fieldset class="roles">
+      <legend>Role</legend>
+      {% for r in roles %}
+      <label class="check"><input type="radio" name="role" value="{{ r }}" {% if r == u.role %}checked{% endif %}>
+        <span><strong>{{ role_labels[r] }}</strong><br><small class="muted">{{ role_help[r] }}</small></span></label>
+      {% endfor %}
+    </fieldset>
+    <label>Discord user ID <small>(for mentions)</small><input name="discord_user_id" value="{{ u.discord_user_id }}" inputmode="numeric"></label>
+    <label class="check"><input type="checkbox" name="disabled" {% if u.disabled %}checked{% endif %}><span>Disabled (can't sign in)</span></label>
+    <div><button type="submit" class="btn-primary">Save</button></div>
+  </form>
+</section>
+
+{% if u.role == "scheduled" %}
+<section class="card" id="windows" aria-labelledby="win-h">
+  <h2 id="win-h">Access windows</h2>
+  <p class="hint">{{ u.display_name or u.username }} can operate the door only during these times.</p>
+  {{ windows_list(windows, "/admin/users/" ~ u.id ~ "/windows/", "No windows yet, so no access.") }}
+  <details class="add">
+    <summary class="btn-secondary">Add a window</summary>
+    {{ window_form("/admin/users/" ~ u.id ~ "/windows", day_names=day_names) }}
+  </details>
+</section>
+{% endif %}
+
+<section class="card" aria-labelledby="secu-h">
+  <h2 id="secu-h">Sign-in</h2>
+  <p>Passkeys: {{ passkeys|length }} · Authenticator app: {{ "on" if u.totp_secret else "off" }}</p>
+  <form method="post" action="/admin/users/{{ u.id }}/password" class="row">
+    {{ csrf_field() }}
+    <input type="password" name="password" placeholder="New password" autocomplete="new-password" minlength="10" required aria-label="New password">
+    <button type="submit" class="btn-secondary">Set password</button>
+  </form>
+  <div class="row">
+    {{ post_button("/admin/users/" ~ u.id ~ "/reset-mfa", "Remove passkeys & authenticator", "btn-ghost danger", "Remove all of this user's passkeys and their authenticator app?") }}
+    {{ post_button("/admin/users/" ~ u.id ~ "/sessions/revoke", "Sign out everywhere", "btn-ghost") }}
+  </div>
+  {% if sessions %}
+  <h3>Devices</h3>
+  <ul class="list compact">
+    {% for s in sessions %}<li>{{ s.user_agent | ua }} · {{ s.ip }} · active {{ ago(s.last_seen_at, now) }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section class="card danger-zone">
+  <h2>Delete user</h2>
+  <p class="hint">Removes the account, its windows and guest links. The activity log keeps their name.</p>
+  {{ post_button("/admin/users/" ~ u.id ~ "/delete", "Delete " ~ u.username, "btn-danger", "Delete " ~ u.username ~ " permanently?") }}
+</section>
+</div>
+{% endblock %}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Garage access{% endblock %}
+{% block main_class %}page narrow auth{% endblock %}
+{% block content %}
+<section class="card">
+  <p class="eyebrow">Garage access</p>
+  {% if link %}
+    <h1>Hi{% if link.display_name %}, {{ link.display_name }}{% endif %}</h1>
+    {% if link.label %}<p class="muted">{{ link.label }}</p>{% endif %}
+  {% else %}
+    <h1>Link not valid</h1>
+  {% endif %}
+
+  {% if problem %}
+    <p class="notice warn">{{ problem }}</p>
+    {% if next %}<p>Access starts <strong>{{ when(next, now) }}</strong>. Open this link again then.</p>{% endif %}
+  {% else %}
+    <p>Your access runs until <strong>{{ when(occ[1], now) }}</strong>. Enter the PIN you were given.</p>
+    {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post" action="/g/{{ token }}" class="stack">
+      <label>PIN
+        <input name="pin" inputmode="numeric" autocomplete="off" pattern="[0-9]{4,8}" maxlength="8" required autofocus class="pin">
+      </label>
+      <button type="submit" class="btn-primary wide">Continue</button>
+    </form>
+    <p class="hint">This link works on one device. Keep it to yourself.</p>
+  {% endif %}
+</section>
+{% endblock %}

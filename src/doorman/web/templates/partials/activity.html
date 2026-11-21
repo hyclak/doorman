@@ -1,0 +1,12 @@
+{% if recent %}
+<ul class="activity">
+  {% for r in recent %}
+  <li>
+    <span class="dot {{ 'open' if r.action == 'door.opened' else 'closed' }}" aria-hidden="true"></span>
+    <span><strong>{{ "Opened" if r.action == "door.opened" else "Closed" }}</strong>
+      <span class="muted">by {{ "wall button or remote" if r.actor_type == "external" else r.actor_name }}</span></span>
+    <time datetime="{{ r.ts }}" class="muted">{{ when(r.ts | todt, now) }}</time>
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p class="muted">Nothing yet.</p>{% endif %}

@@ -1,0 +1,48 @@
+{% extends "admin/base.html" %}
+{% from "macros.html" import csrf_field with context %}
+{% block title %}Users{% endblock %}
+{% block admin %}
+<header class="page-head"><h1>Users</h1></header>
+<section class="card">
+  <table class="table reflow">
+    <thead><tr><th>User</th><th>Role</th><th>Second factor</th><th>Last sign-in</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr{% if u.disabled %} class="disabled"{% endif %}>
+        <td data-label="User"><a href="/admin/users/{{ u.id }}"><strong>{{ u.display_name or u.username }}</strong></a>
+          {% if u.display_name %}<span class="muted">@{{ u.username }}</span>{% endif %}
+          {% if u.disabled %}<span class="badge">Disabled</span>{% endif %}</td>
+        <td data-label="Role"><span class="role role-{{ u.role }}">{{ role_labels[u.role] }}</span></td>
+        <td data-label="Second factor">
+          {%- set f = [] -%}
+          {%- if u.passkey_count %}{% set _ = f.append(u.passkey_count ~ " passkey" ~ ("s" if u.passkey_count > 1 else "")) %}{% endif -%}
+          {%- if u.totp_secret %}{% set _ = f.append("authenticator") %}{% endif -%}
+          {{ f | join(", ") or "—" }}
+        </td>
+        <td data-label="Last sign-in">{{ ago(u.last_login_at|todt if u.last_login_at else none, now) }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section class="card" aria-labelledby="new-h">
+  <h2 id="new-h">Add a user</h2>
+  <form method="post" action="/admin/users" class="stack">
+    {{ csrf_field() }}
+    <div class="grid-2">
+      <label>Username<input name="username" required autocapitalize="none" spellcheck="false" pattern="[A-Za-z0-9._\-]+" maxlength="64"></label>
+      <label>Display name <small>(optional)</small><input name="display_name" maxlength="60"></label>
+    </div>
+    <label>Temporary password<input name="password" type="password" autocomplete="new-password" minlength="10" required></label>
+    <fieldset class="roles">
+      <legend>Role</legend>
+      {% for r in roles %}
+      <label class="check"><input type="radio" name="role" value="{{ r }}" {% if r == "scheduled" %}checked{% endif %}>
+        <span><strong>{{ role_labels[r] }}</strong><br><small class="muted">{{ role_help[r] }}</small></span></label>
+      {% endfor %}
+    </fieldset>
+    <div><button type="submit" class="btn-primary">Add user</button></div>
+  </form>
+</section>
+{% endblock %}

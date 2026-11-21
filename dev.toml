@@ -1,0 +1,19 @@
+# Development config: mock GPIO with a simulated door, plain HTTP on localhost.
+db_path = "dev/doorman.sqlite"
+backup_status_file = "dev/last-backup-ok"
+assume_clock_synced = true
+
+[server]
+host = "127.0.0.1"
+port = 8000
+public_origin = "http://localhost:8000"
+rp_id = "localhost"
+cookie_secure = false
+dev_mode = true
+
+[gpio]
+backend = "mock"
+simulate_door = true
+
+[metrics]
+enabled = false

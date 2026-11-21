@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% from "macros.html" import csrf_field, post_button with context %}
+{% block title %}My account{% endblock %}
+{% block content %}
+<header class="page-head">
+  <h1>My account</h1>
+  <p class="muted">{{ u.display_name or u.username }} · {{ role_labels[u.role] }}</p>
+</header>
+
+{% if needs_mfa %}
+<p class="notice warn">As an admin you need a passkey or an authenticator app before you can use the rest of doorman.</p>
+{% endif %}
+
+<div class="cols">
+<section class="card" aria-labelledby="sec-h">
+  <h2 id="sec-h">Sign-in security</h2>
+
+  <h3>Passkeys</h3>
+  <p class="hint">Sign in with your phone's fingerprint or face unlock. Nothing to type and nothing to phish.</p>
+  {% if passkeys %}
+  <ul class="list">
+    {% for p in passkeys %}
+    <li class="list-row">
+      <div><strong>{{ p.name }}</strong><br><span class="muted">Added {{ when(p.created_at|todt, now) }} · last used {{ ago(p.last_used_at|todt if p.last_used_at else none, now) }}</span></div>
+      {{ post_button("/profile/passkeys/" ~ p.id ~ "/delete", "Remove", "btn-ghost danger", "Remove this passkey?") }}
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <div class="row" data-passkey-register-wrap hidden>
+    <input type="text" id="passkey-name" placeholder="Name, e.g. Pixel 9" maxlength="60" aria-label="Passkey name">
+    <button type="button" class="btn-{{ 'primary' if needs_mfa else 'secondary' }}" data-passkey-register>Add a passkey</button>
+  </div>
+  <p class="hint" data-no-passkey hidden>This browser doesn't support passkeys.</p>
+
+  <h3>Authenticator app</h3>
+  {% if u.totp_secret %}
+    <p><span class="badge ok">On</span> You'll be asked for a 6-digit code when signing in with your password.</p>
+    <form method="post" action="/profile/totp/disable" class="row" data-confirm="Turn off authenticator codes?">
+      {{ csrf_field() }}
+      <input type="password" name="password" placeholder="Your password" autocomplete="current-password" required aria-label="Password">
+      <button type="submit" class="btn-ghost danger">Turn off</button>
+    </form>
+  {% else %}
+    <p class="hint">Use Google Authenticator, Aegis, 1Password or similar.</p>
+    <form method="post" action="/profile/totp/begin">{{ csrf_field() }}<button type="submit" class="btn-secondary">Set up authenticator app</button></form>
+  {% endif %}
+
+  <h3>Password</h3>
+  <form method="post" action="/profile/password" class="stack">
+    {{ csrf_field() }}
+    <input type="text" name="username" value="{{ u.username }}" autocomplete="username" hidden>
+    <label>Current password<input type="password" name="current" autocomplete="current-password" required></label>
+    <div class="grid-2">
+      <label>New password<input type="password" name="new" autocomplete="new-password" minlength="10" required></label>
+      <label>Again<input type="password" name="confirm" autocomplete="new-password" minlength="10" required></label>
+    </div>
+    <div><button type="submit" class="btn-secondary">Change password</button></div>
+  </form>
+</section>
+
+<section class="card" id="notifications" aria-labelledby="notif-h">
+  <h2 id="notif-h">Notifications</h2>
+  <form method="post" action="/profile/notifications" class="stack">
+    {{ csrf_field() }}
+    <fieldset>
+      <legend>Send me</legend>
+      {% for key, info in event_info.items() %}
+      <label class="check">
+        <input type="checkbox" name="events" value="{{ key.value }}" {% if key.value in events %}checked{% endif %}>
+        <span><strong>{{ info[0] }}</strong><br><small class="muted">{{ info[1] }}</small></span>
+      </label>
+      {% endfor %}
+    </fieldset>
+    <fieldset>
+      <legend>Where</legend>
+      {% if shared_available %}
+      <label class="check">
+        <input type="checkbox" name="use_shared" {% if use_shared %}checked{% endif %}>
+        <span>The shared Discord channel</span>
+      </label>
+      <label>Your Discord user ID <small>(optional, so the message mentions you)</small>
+        <input name="discord_user_id" inputmode="numeric" value="{{ u.discord_user_id }}" placeholder="e.g. 123456789012345678">
+      </label>
+      {% else %}<input type="hidden" name="discord_user_id" value="{{ u.discord_user_id }}">{% endif %}
+      <label>Personal destination <small>(optional)</small>
+        <input name="apprise_url" value="{{ apprise_url }}" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="hint">Any <a href="https://github.com/caronc/apprise/wiki" rel="noopener noreferrer" target="_blank">Apprise URL</a>: a Discord webhook, ntfy topic, email, etc.</p>
+    </fieldset>
+    <div class="row">
+      <button type="submit" class="btn-primary">Save</button>
+    </div>
+  </form>
+  <form method="post" action="/profile/notifications/test" class="inline">{{ csrf_field() }}<button type="submit" class="btn-ghost">Send me a test</button></form>
+</section>
+
+<section class="card" aria-labelledby="dev-h">
+  <h2 id="dev-h">Signed-in devices</h2>
+  <ul class="list">
+    {% for s in sessions %}
+    <li class="list-row">
+      <div>
+        <strong>{{ s.user_agent | ua }}</strong>{% if s.id == current_session %} <span class="badge ok">This device</span>{% endif %}<br>
+        <span class="muted">{{ s.ip }} · active {{ ago(s.last_seen_at, now) }} · until {{ when(s.expires_at, now) }}</span>
+      </div>
+      {% if s.id != current_session %}{{ post_button("/profile/sessions/" ~ s.id ~ "/revoke", "Sign out", "btn-ghost danger") }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+</div>
+{% endblock %}

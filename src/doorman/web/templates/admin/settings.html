@@ -1,0 +1,44 @@
+{% extends "admin/base.html" %}
+{% from "macros.html" import csrf_field, post_button with context %}
+{% block title %}Settings{% endblock %}
+{% block admin %}
+<header class="page-head"><h1>Settings</h1></header>
+<div class="cols">
+<section class="card">
+  <form method="post" action="/admin/settings" class="stack">
+    {{ csrf_field() }}
+    {% for group, defs in groups.items() %}
+    <fieldset>
+      <legend>{{ group }}</legend>
+      {% for d in defs %}
+      <label>{{ d.label }}
+        {% if d.kind == "time" %}<input type="time" name="{{ d.key }}" value="{{ values[d.key] }}">
+        {% else %}<input type="number" name="{{ d.key }}" value="{{ values[d.key] }}" min="{{ d.minimum }}" max="{{ d.maximum }}" step="{{ 'any' if d.default is float else 1 }}">{% endif %}
+        {% if d.help %}<small class="muted">{{ d.help }}</small>{% endif %}
+      </label>
+      {% endfor %}
+    </fieldset>
+    {% endfor %}
+    <div><button type="submit" class="btn-primary">Save settings</button></div>
+  </form>
+</section>
+<div>
+<section class="card">
+  <h2>Calibrate crack</h2>
+  <p class="hint">Sends press → pause → press using the saved settings. The door must be closed. Adjust "pause between presses" until the gap is what you want.</p>
+  {{ post_button("/admin/settings/test-crack", "Test crack now", "btn-secondary", "The garage door will move. Continue?") }}
+</section>
+<section class="card">
+  <h2>Notifications</h2>
+  <p>Shared Discord webhook: {{ "configured" if shared else "not configured (set DOORMAN_DISCORD_WEBHOOK)" }}</p>
+  {{ post_button("/admin/settings/test-notify", "Send a test Health alert", "btn-secondary") }}
+  {% if recent_sends %}
+  <h3>Recently delivered</h3>
+  <ul class="list compact">
+    {% for scheme, title, body in recent_sends %}<li><strong>{{ title }}</strong> <span class="muted">via {{ scheme }}</span></li>{% endfor %}
+  </ul>
+  {% endif %}
+</section>
+</div>
+</div>
+{% endblock %}

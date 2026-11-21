@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16181b" media="(prefers-color-scheme: dark)">
+  <meta name="csrf" content="{{ csrf }}">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Garage">
+  <title>{% block title %}Garage{% endblock %} · doorman</title>
+  <link rel="manifest" href="/static/manifest.webmanifest">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+  <link rel="stylesheet" href="/static/app.css?v={{ version }}">
+  <script src="/static/app.js?v={{ version }}" defer></script>
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Garage door home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 4l9 6.5V20a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M7 21v-8h10v8M7 15.5h10M7 18h10" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>
+      <span>Garage</span>
+    </a>
+    {% if ctx.principal %}
+    <nav class="nav" aria-label="Main">
+      <details class="menu">
+        <summary aria-label="Menu"><span class="menu-icon" aria-hidden="true"></span><span class="menu-who">{{ ctx.principal.name }}</span></summary>
+        <ul>
+          <li><a href="/" {% if request.url.path == "/" %}aria-current="page"{% endif %}>Door</a></li>
+          {% if ctx.is_admin %}<li><a href="/admin" {% if request.url.path.startswith("/admin") %}aria-current="page"{% endif %}>Admin</a></li>{% endif %}
+          {% if ctx.user %}<li><a href="/profile" {% if request.url.path.startswith("/profile") %}aria-current="page"{% endif %}>My account</a></li>{% endif %}
+          <li>
+            <form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="linklike">Sign out</button></form>
+          </li>
+        </ul>
+      </details>
+    </nav>
+    {% endif %}
+  </header>
+  {% if flash %}<div class="flash" role="status">{{ flash }}</div>{% endif %}
+  <div id="toast" class="toast" role="alert" aria-live="assertive" hidden></div>
+  <main id="main" class="{% block main_class %}page{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="footer"><span>doorman {{ version }}</span></footer>
+</body>
+</html>

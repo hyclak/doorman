@@ -1,0 +1,34 @@
+{% extends "admin/base.html" %}
+{% block title %}Activity log{% endblock %}
+{% block admin %}
+<header class="page-head">
+  <h1>Activity log</h1>
+  <p class="muted">Kept for 90 days on the Pi. Older history is in Loki/Grafana.</p>
+</header>
+<nav class="pills" aria-label="Filter">
+  {% for key in filters %}
+  <a href="/admin/audit?filter={{ key }}" {% if key == filter %}aria-current="true"{% endif %}>{{ {"": "All", "door": "Door", "auth": "Sign-ins", "admin": "Admin", "link": "Guest links"}[key] }}</a>
+  {% endfor %}
+</nav>
+<section class="card">
+  {% if rows %}
+  <table class="table reflow audit">
+    <thead><tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr class="act-{{ r.action.split('.')[0] }}{% if r.action.endswith('denied') or r.action.endswith('locked') or r.action.endswith('bad_pin') %} bad{% endif %}">
+      <td data-label="When"><time datetime="{{ r.ts }}">{{ when(r.ts|todt, now) }}</time></td>
+      <td data-label="Who">{{ r.actor_name or "—" }} <span class="muted">{{ r.actor_type }}</span></td>
+      <td data-label="What"><code>{{ r.action }}</code></td>
+      <td data-label="Details"><span class="muted">{{ r.detail }}{% if r.ip %} · {{ r.ip }}{% endif %}</span></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <nav class="row pager">
+    {% if page > 0 %}<a class="btn-ghost" href="/admin/audit?filter={{ filter }}&page={{ page - 1 }}">Newer</a>{% endif %}
+    {% if rows|length == 100 %}<a class="btn-ghost" href="/admin/audit?filter={{ filter }}&page={{ page + 1 }}">Older</a>{% endif %}
+  </nav>
+  {% else %}<p class="muted">Nothing logged.</p>{% endif %}
+</section>
+{% endblock %}

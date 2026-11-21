@@ -1,0 +1,2 @@
+# Pure-Python packages not in trixie. Installed with: pip install --no-deps -r requirements/pypi.txt
+apprise==2.2.0

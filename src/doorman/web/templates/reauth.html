@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Confirm it's you{% endblock %}
+{% block main_class %}page narrow auth{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Confirm it's you</h1>
+  <p class="muted">Admin changes need a fresh confirmation. It lasts 10 minutes.</p>
+  {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+  {% if has_passkey %}
+  <button type="button" class="btn-primary wide" data-passkey-reauth data-next="{{ next }}" hidden>Use your passkey</button>
+  <div class="divider"><span>or</span></div>
+  {% endif %}
+  <form method="post" action="/reauth" class="stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    {% if has_totp %}
+    <label>Authenticator code<input name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required></label>
+    {% endif %}
+    <button type="submit" class="btn-{{ 'secondary' if has_passkey else 'primary' }} wide">Confirm</button>
+  </form>
+  <p class="center"><a href="{{ next }}">Cancel</a></p>
+</section>
+{% endblock %}

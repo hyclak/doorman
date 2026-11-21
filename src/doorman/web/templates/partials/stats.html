@@ -1,0 +1,26 @@
+{% if stats %}
+<dl class="stats">
+  <div class="stat{% if stats.cpu_temp_c and stats.cpu_temp_c >= 70 %} warn{% endif %}">
+    <dt>CPU temperature</dt><dd>{{ "%.0f"|format(stats.cpu_temp_c) ~ " °C" if stats.cpu_temp_c is not none else "—" }}</dd>
+  </div>
+  <div class="stat{% if stats.wifi_quality is not none and stats.wifi_quality < 40 %} warn{% endif %}">
+    <dt>Wi-Fi</dt>
+    <dd>{% if stats.wifi_quality is not none %}{{ "%.0f"|format(stats.wifi_quality) }}%<small> {{ "%.0f"|format(stats.wifi_signal_dbm) }} dBm</small>{% else %}—{% endif %}</dd>
+  </div>
+  <div class="stat"><dt>Uptime</dt><dd>{{ duration(stats.uptime_s) }}</dd></div>
+  <div class="stat">
+    <dt>Memory free</dt>
+    <dd>{% if stats.mem_available_mb %}{{ stats.mem_available_mb|int }}<small> / {{ stats.mem_total_mb|int }} MB</small>{% else %}—{% endif %}</dd>
+  </div>
+  <div class="stat"><dt>Disk free</dt><dd>{% if stats.disk_free_gb is not none %}{{ stats.disk_free_gb }}<small> GB</small>{% else %}—{% endif %}</dd></div>
+  <div class="stat{% if stats.clock_synced == false %} warn{% endif %}">
+    <dt>Clock</dt><dd>{{ "Synced" if stats.clock_synced else ("Not synced" if stats.clock_synced == false else "—") }}</dd>
+  </div>
+  <div class="stat{% if stats.under_voltage_now or stats.throttled_now %} warn{% endif %}">
+    <dt>Power</dt><dd>{% if stats.throttled_raw is none %}—{% elif stats.throttle_flags %}{{ stats.throttle_flags[0] }}{% else %}OK{% endif %}</dd>
+  </div>
+  <div class="stat"><dt>Load</dt><dd>{{ stats.load_1m if stats.load_1m is not none else "—" }}</dd></div>
+</dl>
+{% else %}
+<p class="muted">Collecting…</p>
+{% endif %}

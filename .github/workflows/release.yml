@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  # PRs that touch this workflow, and manual runs, build and check everything
+  # but only a tag push publishes a release.
+  pull_request:
+    paths: [".github/workflows/release.yml"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -20,6 +25,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Check the tag matches the package version
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           pkg=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('src/doorman/__init__.py').read())[1])")
           test "v${pkg}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != package v${pkg}"; exit 1; }
@@ -44,6 +50,10 @@ jobs:
         with:
           go-version: stable
 
+      # xcaddy itself must be built for the runner; only the Caddy build targets the Pi.
+      - name: Install xcaddy
+        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION}
+
       - name: Build Caddy for linux/arm/v6 (Pi Zero W) with the Route53 DNS module
         env:
           GOOS: linux
@@ -51,16 +61,22 @@ jobs:
           GOARM: "6"
           CGO_ENABLED: "0"
         run: |
-          go install github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION}
           xcaddy build "${CADDY_VERSION}" \
             --with "github.com/caddy-dns/route53@${CADDY_ROUTE53_VERSION}" \
             --output "dist/caddy-${CADDY_VERSION}-route53-linux-armv6"
+
+      - name: Check the Caddy binary targets ARMv6 and includes Route53
+        run: |
+          bin="dist/caddy-${CADDY_VERSION}-route53-linux-armv6"
+          file "$bin" | tee /dev/stderr | grep -q "ARM, EABI5"
+          go version -m "$bin" | grep -E "^\s+(build\s+GOARM=6|dep\s+github.com/caddy-dns/route53)" | tee /dev/stderr | wc -l | grep -qx 2
 
       - name: Checksums
         working-directory: dist
         run: sha256sum * > SHA256SUMS && cat SHA256SUMS
 
       - uses: softprops/action-gh-release@v3
+        if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/*
           generate_release_notes: true

@@ -1,0 +1,37 @@
+{% extends "admin/base.html" %}
+{% from "macros.html" import csrf_field, window_form, windows_list with context %}
+{% block title %}Quiet hours{% endblock %}
+{% block admin %}
+<header class="page-head">
+  <h1>Quiet hours</h1>
+  <p class="muted">Times the door should be closed. If it's open, doorman alerts and then reminds until it's closed.</p>
+</header>
+{% if state %}
+<p class="notice warn">Alert in progress: {{ state.sent }} message{{ "s" if state.sent != 1 }} sent{% if state.gave_up %}, reminders stopped{% endif %}.</p>
+{% endif %}
+<div class="cols">
+<section class="card">
+  <h2>Windows</h2>
+  {{ windows_list(windows, "/admin/quiet/", "No quiet hours set.") }}
+  <details class="add" {% if not windows %}open{% endif %}>
+    <summary class="btn-secondary">Add quiet hours</summary>
+    {{ window_form("/admin/quiet", kinds=("weekly", "daily", "once"), submit="Add quiet hours", day_names=day_names, default_kind="weekly") }}
+  </details>
+</section>
+<section class="card">
+  <h2>Reminders</h2>
+  <form method="post" action="/admin/settings" class="stack">
+    {{ csrf_field() }}
+    <input type="hidden" name="back" value="/admin/quiet">
+    {% for d in defs %}
+    <label>{{ d.label }}
+      {% if d.kind == "time" %}<input type="time" name="{{ d.key }}" value="{{ values[d.key] }}">
+      {% else %}<input type="number" name="{{ d.key }}" value="{{ values[d.key] }}" min="{{ d.minimum }}" max="{{ d.maximum }}" step="1">{% endif %}
+      {% if d.help %}<small class="muted">{{ d.help }}</small>{% endif %}
+    </label>
+    {% endfor %}
+    <div><button type="submit" class="btn-primary">Save</button></div>
+  </form>
+</section>
+</div>
+{% endblock %}

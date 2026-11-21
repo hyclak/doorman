@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Confirm it's you{% endblock %}
+{% block main_class %}page narrow auth{% endblock %}
+{% block content %}
+<section class="card">
+  <h1>Confirm it's you</h1>
+  {% if error %}<p class="notice error" role="alert">{{ error }}</p>{% endif %}
+  {% if has_passkey %}
+  <button type="button" class="btn-primary wide" data-passkey-login data-next="{{ next }}" hidden>Use your passkey</button>
+  {% endif %}
+  {% if has_passkey and has_totp %}<div class="divider"><span>or</span></div>{% endif %}
+  {% if has_totp %}
+  <form method="post" action="/login/mfa" class="stack">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="next" value="{{ next }}">
+    <label>Code from your authenticator app
+      <input name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" required {% if not has_passkey %}autofocus{% endif %}>
+    </label>
+    <button type="submit" class="btn-{{ 'secondary' if has_passkey else 'primary' }} wide">Verify</button>
+  </form>
+  {% endif %}
+  <form method="post" action="/logout" class="center"><input type="hidden" name="csrf" value="{{ csrf }}"><button class="linklike" type="submit">Cancel</button></form>
+</section>
+{% endblock %}

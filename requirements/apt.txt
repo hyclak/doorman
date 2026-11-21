@@ -1,0 +1,26 @@
+# Debian trixie / Raspberry Pi OS apt packages providing doorman's runtime deps.
+# Installed by the app_doorman Ansible role. The venv uses --system-site-packages.
+python3-fastapi
+python3-starlette
+python3-uvicorn
+python3-pydantic
+python3-python-multipart
+python3-jinja2
+python3-argon2
+python3-cryptography
+python3-fido2         # WebAuthn/passkeys (Yubico), trixie 1.2.0
+python3-cbor2
+python3-pyotp
+python3-segno
+python3-paho-mqtt
+python3-prometheus-client
+python3-requests
+python3-requests-oauthlib
+python3-yaml
+python3-markdown
+python3-click
+python3-certifi
+python3-lgpio        # Raspberry Pi OS repo (archive.raspberrypi.com)
+python3-venv
+sqlite3
+rsync

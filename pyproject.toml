@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "doorman"
+version = "0.1.0"
+description = "Self-hosted garage door controller for a Raspberry Pi: RBAC, scheduled guest access, alerts, Home Assistant API."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+# Runtime dependencies are deliberately NOT listed here. On the Pi they come from
+# Debian trixie / Raspberry Pi OS apt packages (requirements/apt.txt) plus a few
+# pure-Python wheels installed with --no-deps (requirements/pypi.txt), so nothing
+# is compiled on the ARMv6 Pi Zero. requirements/dev.txt pins the same versions
+# for development and CI.
+dependencies = []
+
+[project.scripts]
+doorman = "doorman.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+doorman = ["migrations/*.sql", "web/templates/**/*.html", "web/static/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF"]
+ignore = [
+    "S101",   # assert in tests
+    "S608",   # SQL built from fixed column lists only
+    "RUF012",
+    "RUF001", "RUF002", "RUF003",  # en dashes and ° in UI text are intentional
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src/doorman"]
+ignore_missing_imports = true
+check_untyped_defs = true
+warn_unused_ignores = true

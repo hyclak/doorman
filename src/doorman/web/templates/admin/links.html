@@ -1,0 +1,67 @@
+{% extends "admin/base.html" %}
+{% from "macros.html" import csrf_field, post_button with context %}
+{% block title %}Guest links{% endblock %}
+{% block admin %}
+<header class="page-head">
+  <h1>Guest links</h1>
+  <p class="muted">A link plus a PIN you share separately. It works only during its time, on the first device that uses it.</p>
+</header>
+
+<section class="card" aria-labelledby="new-link-h">
+  <h2 id="new-link-h">Create a link</h2>
+  {% set eligible = users | selectattr("role", "in", ["scheduled", "viewer"]) | list %}
+  {% if not eligible %}
+  <p class="notice">Links belong to an account, e.g. "housecleaner". <a href="/admin/users">Add a Scheduled user</a> first.</p>
+  {% else %}
+  <form method="post" action="/admin/links" class="stack">
+    {{ csrf_field() }}
+    <div class="grid-2">
+      <label>For account
+        <select name="user_id" required>
+          {% for u in eligible %}<option value="{{ u.id }}">{{ u.display_name or u.username }}</option>{% endfor %}
+        </select>
+      </label>
+      <label>Note <small>(shown to the guest)</small><input name="label" maxlength="80" placeholder="e.g. Saturday cleaning"></label>
+    </div>
+    <div class="grid-3">
+      <label>Date<input type="date" name="date" value="{{ today }}" required></label>
+      <label>From<input type="time" name="start_time" required></label>
+      <label>Until<input type="time" name="end_time" required></label>
+    </div>
+    <details>
+      <summary>More options</summary>
+      <div class="grid-2">
+        <label>Devices allowed<input type="number" name="max_redemptions" value="1" min="1" max="20"></label>
+        <label>PIN <small>(blank = random)</small><input name="pin" inputmode="numeric" pattern="[0-9]{4,8}" maxlength="8" autocomplete="off"></label>
+      </div>
+    </details>
+    <div><button type="submit" class="btn-primary">Create link</button></div>
+  </form>
+  {% endif %}
+</section>
+
+<section class="card" aria-labelledby="links-h">
+  <h2 id="links-h">Links</h2>
+  {% if rows %}
+  <table class="table reflow">
+    <thead><tr><th>For</th><th>When</th><th>Used</th><th>Status</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for r in rows %}{% set l = r.link %}
+      <tr{% if l.revoked or r.expired %} class="disabled"{% endif %}>
+        <td data-label="For"><strong>{{ l.display_name or l.username }}</strong>{% if l.label %}<br><span class="muted">{{ l.label }}</span>{% endif %}</td>
+        <td data-label="When">{% for w in r.windows %}{{ w.describe() }}{% endfor %}</td>
+        <td data-label="Used">{{ l.redemptions }} / {{ l.max_redemptions }}{% if l.failed_attempts %} <span class="muted">({{ l.failed_attempts }} bad PIN)</span>{% endif %}</td>
+        <td data-label="Status">
+          {% if l.revoked %}<span class="badge">Off</span>{% elif r.expired %}<span class="badge">Past</span>{% elif l.failed_attempts >= 5 %}<span class="badge warn">Locked</span>{% else %}<span class="badge ok">Ready</span>{% endif %}
+        </td>
+        <td class="actions">
+          {% if not l.revoked and not r.expired %}{{ post_button("/admin/links/" ~ l.id ~ "/revoke", "Turn off", "btn-ghost danger", "Turn off this link now?") }}{% endif %}
+          {{ post_button("/admin/links/" ~ l.id ~ "/delete", "Delete", "btn-ghost", "Delete this link?") }}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No links yet.</p>{% endif %}
+</section>
+{% endblock %}

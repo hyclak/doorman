@@ -1,0 +1,55 @@
+<section class="door-panel state-{{ snap.state.value }}" id="door-panel" data-refresh="/status" data-interval="2000" aria-labelledby="door-state">
+  <div class="door-visual" aria-hidden="true">
+    <svg viewBox="0 0 120 96">
+      <path class="house" d="M6 40 60 6l54 34v50a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2z"/>
+      <rect class="opening" x="22" y="40" width="76" height="52" rx="1"/>
+      <g class="door-slats">
+        <rect x="22" y="40" width="76" height="12.5"/><rect x="22" y="53" width="76" height="12.5"/>
+        <rect x="22" y="66" width="76" height="12.5"/><rect x="22" y="79" width="76" height="13"/>
+      </g>
+    </svg>
+  </div>
+  <div class="door-status">
+    <p class="eyebrow">Garage door</p>
+    <h1 id="door-state" class="door-label">{{ snap.label }}</h1>
+    <p class="door-since">
+      {% if snap.moving %}Moving now{% else %}Since {{ when(snap.since, now) }}{% endif %}
+      {%- if snap.last_actor %} · {{ snap.last_actor if snap.last_source != "external" else "wall button or remote" }}{% endif %}
+    </p>
+    {% if snap.message %}<p class="notice warn">{{ snap.message }}</p>{% endif %}
+  </div>
+  <div class="door-actions">
+    {% if primary %}
+      {% set hold = primary.value in confirm %}
+      <button type="button" class="btn-door" data-action="{{ primary.value }}" {% if hold %}data-hold aria-describedby="hold-hint"{% endif %}>
+        <span class="hold-fill" aria-hidden="true"></span>
+        <span class="btn-text">{{ labels[primary] }}</span>
+      </button>
+      {% if hold %}<p id="hold-hint" class="hint center">Press and hold to {{ labels[primary]|lower }}</p>{% endif %}
+      {% for a in secondary %}
+      <button type="button" class="btn-secondary wide" data-action="{{ a.value }}" {% if a.value in confirm %}data-hold{% endif %}>
+        <span class="hold-fill" aria-hidden="true"></span>
+        <span class="btn-text">{{ labels[a] }}{% if a.value in confirm %} <small>(hold)</small>{% endif %}</span>
+      </button>
+      {% endfor %}
+    {% elif snap.moving %}
+      <p class="muted center">Wait for the door to stop.</p>
+    {% elif reason %}
+      <p class="notice">{{ reason }}</p>
+    {% endif %}
+  </div>
+  {% if window %}
+  <div class="guest-window">
+    {% if window.active_until %}
+      <p>Your access ends at <strong>{{ when(window.active_until, now) }}</strong>.</p>
+    {% elif window.late_close_until and now < window.late_close_until %}
+      <p>Your access window has ended. You can still <strong>close</strong> the door until {{ when(window.late_close_until, now) }}.</p>
+    {% elif window.next %}
+      <p>Your next access starts {{ when(window.next, now) }}.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if not clock_synced and ctx.principal and ctx.principal.time_limited %}
+  <p class="notice warn">The controller's clock is still syncing, so scheduled access is paused.</p>
+  {% endif %}
+</section>

@@ -1,0 +1,66 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  # Pinned so every release ships a known Caddy. Bump deliberately.
+  CADDY_VERSION: v2.11.9
+  CADDY_ROUTE53_VERSION: v1.6.3
+  XCADDY_VERSION: v0.4.7
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check the tag matches the package version
+        run: |
+          pkg=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('src/doorman/__init__.py').read())[1])")
+          test "v${pkg}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != package v${pkg}"; exit 1; }
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Test before releasing
+        run: |
+          pip install -r requirements/dev.txt -e .
+          ruff check src tests
+          mypy
+          pytest -q
+
+      - name: Build wheel
+        run: |
+          pip install build==1.2.2
+          python -m build --wheel --outdir dist
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version: stable
+
+      - name: Build Caddy for linux/arm/v6 (Pi Zero W) with the Route53 DNS module
+        env:
+          GOOS: linux
+          GOARCH: arm
+          GOARM: "6"
+          CGO_ENABLED: "0"
+        run: |
+          go install github.com/caddyserver/xcaddy/cmd/xcaddy@${XCADDY_VERSION}
+          xcaddy build "${CADDY_VERSION}" \
+            --with "github.com/caddy-dns/route53@${CADDY_ROUTE53_VERSION}" \
+            --output "dist/caddy-${CADDY_VERSION}-route53-linux-armv6"
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
+          generate_release_notes: true

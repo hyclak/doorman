@@ -1,0 +1,17 @@
+{% extends "admin/base.html" %}
+{% block title %}Link created{% endblock %}
+{% block admin %}
+<section class="card">
+  <h1>Link ready</h1>
+  <p>For <strong>{{ u.display_name or u.username }}</strong>{% if label %} ({{ label }}){% endif %}: {{ window.describe() }}.</p>
+  <p class="notice warn">Copy these now. They won't be shown again.</p>
+  <label>Link
+    <div class="copy-row"><input readonly value="{{ url }}" id="link-url"><button type="button" class="btn-secondary" data-copy="{{ url }}">Copy</button></div>
+  </label>
+  <label>PIN
+    <div class="copy-row"><input readonly value="{{ pin }}" class="pin"><button type="button" class="btn-secondary" data-copy="{{ pin }}">Copy</button></div>
+  </label>
+  <p class="hint">Send the link by text or email. Give the PIN another way (in person, or by phone) so a forwarded link alone is useless.</p>
+  <p><a class="btn-primary" href="/admin/links">Done</a></p>
+</section>
+{% endblock %}

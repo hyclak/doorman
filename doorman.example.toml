@@ -1,0 +1,42 @@
+# /etc/doorman/doorman.toml — production example (the Ansible role templates this).
+# Secrets never go here; they come from the environment (/etc/doorman/secrets.env):
+#   DOORMAN_SECRET_KEY       32+ random characters (required)
+#   DOORMAN_DISCORD_WEBHOOK  shared Discord webhook for notifications (optional)
+#   DOORMAN_MQTT_PASSWORD    MQTT broker password (optional)
+
+db_path = "/var/lib/doorman/doorman.sqlite"
+timezone = "America/New_York"
+backup_status_file = "/var/lib/doorman/last-backup-ok"
+
+[server]
+host = "127.0.0.1"            # Caddy terminates TLS and proxies here
+port = 8000
+public_origin = "https://door.reversion.org:3667"
+rp_id = "door.reversion.org"  # passkeys are bound to this hostname
+cookie_secure = true
+trusted_proxies = ["127.0.0.1", "::1"]
+
+[gpio]
+backend = "lgpio"
+chip = 0
+relay_pin = 7                 # BCM numbering
+reed_pin = 18
+reed_closed_value = 0         # reed reads 0 when the door is closed
+reed_pull = "as-is"           # "up", "down" or "as-is"
+relay_mode = "open_drain"     # press = drive low, release = input (matches the old GaragePi)
+simulate_door = false
+
+[metrics]
+enabled = true
+host = "127.0.0.1"            # exposed to Prometheus only through Caddy's LAN listener
+port = 9101
+
+[mqtt]
+enabled = false               # turn on once a broker exists
+host = "localhost"
+port = 1883
+username = "doorman"
+tls = false
+base_topic = "doorman"
+discovery_prefix = "homeassistant"
+allow_commands = true

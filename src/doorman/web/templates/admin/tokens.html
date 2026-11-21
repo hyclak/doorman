@@ -1,0 +1,42 @@
+{% extends "admin/base.html" %}
+{% from "macros.html" import csrf_field, post_button with context %}
+{% block title %}API tokens{% endblock %}
+{% block admin %}
+<header class="page-head">
+  <h1>API tokens</h1>
+  <p class="muted">For Home Assistant and scripts. Send as <code>Authorization: Bearer &lt;token&gt;</code> to <code>/api/v1/status</code> and <code>/api/v1/door/open|close</code>.</p>
+</header>
+{% if new_token %}
+<section class="card">
+  <p class="notice warn">Copy this token now. It won't be shown again.</p>
+  <div class="copy-row"><input readonly value="{{ new_token }}"><button type="button" class="btn-secondary" data-copy="{{ new_token }}">Copy</button></div>
+</section>
+{% endif %}
+<section class="card">
+  {% if tokens %}
+  <table class="table reflow">
+    <thead><tr><th>Name</th><th>Can</th><th>Created</th><th>Last used</th><th><span class="sr-only">Actions</span></th></tr></thead>
+    <tbody>
+    {% for t in tokens %}
+    <tr>
+      <td data-label="Name"><strong>{{ t.name }}</strong></td>
+      <td data-label="Can">{{ "Read + operate" if "operate" in t.scopes else "Read only" }}</td>
+      <td data-label="Created">{{ when(t.created_at|todt, now) }}</td>
+      <td data-label="Last used">{{ ago(t.last_used_at|todt if t.last_used_at else none, now) }}</td>
+      <td class="actions">{{ post_button("/admin/tokens/" ~ t.id ~ "/revoke", "Revoke", "btn-ghost danger", "Revoke " ~ t.name ~ "?") }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">No tokens.</p>{% endif %}
+</section>
+<section class="card">
+  <h2>New token</h2>
+  <form method="post" action="/admin/tokens" class="stack">
+    {{ csrf_field() }}
+    <label>Name<input name="name" required maxlength="60" placeholder="Home Assistant"></label>
+    <label class="check"><input type="checkbox" name="operate"><span>Allow opening and closing the door</span></label>
+    <div><button type="submit" class="btn-primary">Create token</button></div>
+  </form>
+</section>
+{% endblock %}

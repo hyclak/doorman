@@ -1,0 +1,58 @@
+{% macro csrf_field() %}<input type="hidden" name="csrf" value="{{ csrf }}">{% endmacro %}
+
+{% macro post_button(action, label, cls="btn-secondary", confirm="") %}
+<form method="post" action="{{ action }}" class="inline" {% if confirm %}data-confirm="{{ confirm }}"{% endif %}>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit" class="{{ cls }}">{{ label }}</button>
+</form>
+{% endmacro %}
+
+{% macro window_form(action, kinds=("once", "daily", "weekly"), submit="Add window", day_names=("Mon","Tue","Wed","Thu","Fri","Sat","Sun"), default_kind="once") %}
+<form method="post" action="{{ action }}" class="stack window-form" data-window-form>
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  {% if kinds|length > 1 %}
+  <fieldset class="segmented">
+    <legend>Repeats</legend>
+    {% for k in kinds %}
+    <label><input type="radio" name="kind" value="{{ k }}" {% if k == default_kind %}checked{% endif %}><span>{{ {"once": "One time", "daily": "Every day", "weekly": "Weekly"}[k] }}</span></label>
+    {% endfor %}
+  </fieldset>
+  {% else %}<input type="hidden" name="kind" value="{{ kinds[0] }}">{% endif %}
+  <div class="grid-2" data-kind-show="once">
+    <label>Date<input type="date" name="date"></label>
+    <label>End date <small>(optional)</small><input type="date" name="end_date"></label>
+  </div>
+  <fieldset class="days" data-kind-show="weekly">
+    <legend>Days</legend>
+    {% for d in day_names %}<label class="chip"><input type="checkbox" name="days" value="{{ loop.index0 }}"><span>{{ d }}</span></label>{% endfor %}
+  </fieldset>
+  <div class="grid-2">
+    <label>From<input type="time" name="start_time" required></label>
+    <label>Until<input type="time" name="end_time" required></label>
+  </div>
+  <p class="hint" data-kind-show="daily weekly">An end time earlier than the start time runs past midnight.</p>
+  <div class="grid-2" data-kind-show="daily weekly">
+    <label>Starting <small>(optional)</small><input type="date" name="valid_from"></label>
+    <label>Ending <small>(optional)</small><input type="date" name="valid_until"></label>
+  </div>
+  <label>Note <small>(optional)</small><input type="text" name="label" maxlength="60" placeholder="e.g. Cleaning"></label>
+  <div><button type="submit" class="btn-primary">{{ submit }}</button></div>
+</form>
+{% endmacro %}
+
+{% macro windows_list(windows, delete_prefix, empty="None yet.") %}
+{% if windows %}
+<ul class="list">
+  {% for w in windows %}
+  <li class="list-row{% if w.is_expired(now) %} expired{% endif %}">
+    <div>
+      <strong>{{ w.describe() }}</strong>
+      {% if w.label %}<span class="muted"> · {{ w.label }}</span>{% endif %}
+      {% if w.is_expired(now) %}<span class="badge">Past</span>{% elif w.occurrence_at(now) %}<span class="badge ok">Active now</span>{% endif %}
+    </div>
+    {{ post_button(delete_prefix ~ w.id ~ "/delete", "Remove", "btn-ghost danger", "Remove this window?") }}
+  </li>
+  {% endfor %}
+</ul>
+{% else %}<p class="muted">{{ empty }}</p>{% endif %}
+{% endmacro %}

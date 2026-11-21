@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block main_class %}page admin{% endblock %}
+{% block content %}
+<div class="admin-layout">
+  <nav class="subnav" aria-label="Admin">
+    {% set items = [("/admin/users", "Users"), ("/admin/links", "Guest links"), ("/admin/quiet", "Quiet hours"), ("/admin/settings", "Settings"), ("/admin/tokens", "API tokens"), ("/admin/audit", "Activity log")] %}
+    {% for href, label in items %}
+    <a href="{{ href }}" {% if request.url.path.startswith(href) %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  <div class="admin-main">
+    {% block admin %}{% endblock %}
+  </div>
+</div>
+{% endblock %}

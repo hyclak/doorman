@@ -1,4 +1,5 @@
-# Mirrors the trixie versions so dev/CI match the Pi.
+# Runtime libraries mirror the trixie versions so dev/CI match the Pi.
+# Dev tools (ruff, mypy, pytest) are pinned to keep local and CI lint results identical.
 fastapi==0.115.11
 starlette==0.46.1
 uvicorn==0.32.0
@@ -22,5 +23,5 @@ fido2==1.2.0
 apprise==2.2.0
 httpx==0.28.1
 pytest==8.3.5
-ruff==0.11.13
-mypy==1.15.0
+ruff==0.17.6
+mypy==2.4.1

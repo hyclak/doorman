@@ -12,6 +12,8 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     strategy:
+      # Report every Python version even if one fails.
+      fail-fast: false
       matrix:
         # 3.13 is what Raspberry Pi OS trixie ships; 3.12 keeps local dev on older Macs working.
         python: ["3.13", "3.12"]

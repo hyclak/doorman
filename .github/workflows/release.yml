@@ -69,7 +69,8 @@ jobs:
         run: |
           bin="dist/caddy-${CADDY_VERSION}-route53-linux-armv6"
           file "$bin" | tee /dev/stderr | grep -q "ARM, EABI5"
-          go version -m "$bin" | grep -E "^\s+(build\s+GOARM=6|dep\s+github.com/caddy-dns/route53)" | tee /dev/stderr | wc -l | grep -qx 2
+          go version -m "$bin" | grep -E "^\s+(build\s+GOARM=6|dep\s+github.com/caddy-dns/route53)"
+          test "$(go version -m "$bin" | grep -cE "^\s+(build\s+GOARM=6|dep\s+github.com/caddy-dns/route53)")" -eq 2
 
       - name: Checksums
         working-directory: dist

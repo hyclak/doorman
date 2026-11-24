@@ -105,6 +105,24 @@ sudo doorman reset-mfa <username>
 sudo doorman config-check
 ```
 
+### Upgrade notes
+
+- **MQTT commands are off by default.** `mqtt.allow_commands` now defaults to `false`. MQTT commands
+  skip schedules and sign-in, so anyone who can publish to `<base_topic>/door/set` can operate the
+  door. If Home Assistant operates the door over MQTT, set `allow_commands = true` explicitly, and
+  restrict that topic with broker ACLs (and preferably TLS).
+- **Alerts go to Admin and Household accounts only.** Viewer and Scheduled accounts no longer see
+  notification settings or receive alerts, including any they set up before. Security alerts
+  remain admin-only.
+- **Personal notification URLs are limited** to Discord, Telegram, Pushover, Pushbullet, Slack and
+  ntfy.sh (plus Discord/Slack webhook and ntfy.sh links). Other kinds, including email, generic
+  `json://`/`form://` webhooks and self-hosted ntfy servers, are refused when saved and skipped
+  when sending. The shared Discord webhook is unaffected.
+- **Passkeys** used on their own (without a password) must verify the person with a PIN or
+  biometric. A security key without a PIN still works as the second step after a password.
+- **Caddy's admin API** should not listen on TCP: set `admin unix//run/caddy/admin.sock` (or
+  `admin off`) in the Caddyfile's global options.
+
 ### Releases
 
 Pushing a `v*` tag builds the wheel and a Caddy binary for `linux/arm/v6` with the Route53 DNS

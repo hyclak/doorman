@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import ipaddress
 import sqlite3
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -20,10 +24,15 @@ from doorman.core import Core
 from doorman.store import Session
 
 REAUTH_WINDOW = timedelta(minutes=10)
-FLASH_COOKIE = "doorman_flash"
 
+# Keyed by client address (see rate_key). An attacker controls how many of these keys exist.
 login_limiter = RateLimiter(limit=10, window_s=300)
 pin_limiter = RateLimiter(limit=10, window_s=300)
+# Keyed by account ("mfa:<id>", "reauth:<id>"). Kept apart from the address-keyed limiters so
+# flooding those from many addresses can never evict an account's counter.
+account_limiter = RateLimiter(limit=10, window_s=300)
+# "Send test" on the profile page delivers immediately, so it gets a small budget per user.
+notify_test_limiter = RateLimiter(limit=5, window_s=300)
 # Starting a passkey request proves nothing and costs one in-memory challenge; the sign-in page
 # starts one on every load (for autofill), so it gets its own, roomier budget.
 passkey_begin_limiter = RateLimiter(limit=60, window_s=300)
@@ -66,6 +75,11 @@ def cookie_name(request: Request) -> str:
     return "__Host-doorman" if core(request).cfg.server.cookie_secure else "doorman_session"
 
 
+def flash_cookie(request: Request) -> str:
+    # __Host- stops a sibling subdomain from planting a message for this site.
+    return "__Host-doorman_flash" if core(request).cfg.server.cookie_secure else "doorman_flash"
+
+
 def client_ip(request: Request) -> str:
     peer = request.client.host if request.client else ""
     trusted = core(request).cfg.server.trusted_proxies
@@ -78,6 +92,46 @@ def client_ip(request: Request) -> str:
         except ValueError:
             pass
     return peer
+
+
+def rate_key(ip: str) -> str:
+    """Rate-limit key for a client address. IPv6 is grouped by /64, the block one home or host
+    normally gets, so rotating addresses inside it doesn't buy more attempts."""
+    try:
+        addr = ipaddress.ip_address(ip)
+    except ValueError:
+        return f"ip:{ip}"
+    if isinstance(addr, ipaddress.IPv6Address):
+        if addr.ipv4_mapped is not None:
+            return f"ip:{addr.ipv4_mapped}"
+        return f"ip:{ipaddress.IPv6Network((addr, 64), strict=False)}"
+    return f"ip:{addr}"
+
+
+# Password and PIN hashing (argon2id, ~19 MiB each) runs on one dedicated thread: it never stalls
+# the event loop (door monitor, watchdog, other requests), a flood of sign-in attempts queues
+# instead of exhausting memory, and check-then-update sequences in the store run one at a time.
+#
+# The cost: a flood from many addresses queues up and delays real sign-ins (~1.2 s per hash on a
+# Pi Zero). Unauthenticated entry points (sign-in, guest PIN) check hash_queue_full() first and
+# answer 429 rather than join a queue that would take longer than HASH_QUEUE_LIMIT hashes.
+_hash_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="doorman-hash")
+HASH_QUEUE_LIMIT = 8
+_hash_pending = 0  # only touched on the event loop thread
+
+
+def hash_queue_full() -> bool:
+    return _hash_pending >= HASH_QUEUE_LIMIT
+
+
+async def off_loop[T](fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    global _hash_pending
+    loop = asyncio.get_running_loop()
+    _hash_pending += 1
+    try:
+        return await loop.run_in_executor(_hash_pool, functools.partial(fn, *args, **kwargs))
+    finally:
+        _hash_pending -= 1
 
 
 def load_ctx(request: Request) -> Ctx:
@@ -126,11 +180,12 @@ def require_login(request: Request) -> Ctx:
             raise Redirect("/login/mfa")
         raise Redirect(f"/login?next={_next(request)}")
     path = request.url.path
-    # Admins must have a passkey or authenticator app before doing anything else.
+    # Admins must have a passkey or authenticator app before doing anything else. /reauth stays
+    # reachable because adding one needs a recent sign-in.
     if (
         cx.user is not None
         and cx.user["role"] == "admin"
-        and path not in ("/profile", "/logout")
+        and path not in ("/profile", "/logout", "/logout-now", "/reauth")
         and not path.startswith("/profile/")
         and not core(request).store.has_second_factor(cx.user)
     ):
@@ -150,19 +205,33 @@ def require_admin(request: Request, recent: bool = False) -> Ctx:
     if not cx.is_admin:
         raise Forbidden()
     if recent:
-        assert cx.session is not None
-        reauth = cx.session.reauth_at
-        if reauth is None or core(request).clock.now() - reauth > REAUTH_WINDOW:
-            back = request.headers.get("referer", "")
-            target = urlsplit(back).path if back else request.url.path
-            raise Redirect(
-                f"/reauth?next={quote(target or '/admin', safe='')}", "Confirm it's you to change settings."
-            )
+        require_recent(request, cx, "Confirm it's you to change settings.", "/admin")
     return cx
 
 
+def require_recent(request: Request, cx: Ctx, message: str, default_next: str) -> None:
+    """Require a sign-in (password + second factor, or a verified passkey) in the last 10 minutes."""
+    assert cx.session is not None
+    reauth = cx.session.reauth_at
+    if reauth is None or core(request).clock.now() - reauth > REAUTH_WINDOW:
+        back = request.headers.get("referer", "")
+        target = urlsplit(back).path if back else request.url.path
+        raise Redirect(f"/reauth?next={quote(safe_next(target, default_next), safe='')}", message)
+
+
 def safe_next(value: str | None, default: str = "/") -> str:
+    """A same-site path to go to after signing in, or ``default``.
+
+    Browsers drop tabs and newlines inside URLs and treat backslashes as slashes, so "/<TAB>/evil"
+    or "/\\evil" would become "//evil", another site. Anything with control characters, spaces,
+    backslashes, a scheme or a host is refused.
+    """
     if not value or not value.startswith("/") or value.startswith("//") or "\\" in value:
+        return default
+    if any(ord(c) < 0x21 or ord(c) == 0x7F for c in value):
+        return default
+    parts = urlsplit(value)
+    if parts.scheme or parts.netloc:
         return default
     return value
 
@@ -217,7 +286,7 @@ def redirect(request: Request, url: str, flash: str = "") -> RedirectResponse:
     resp = RedirectResponse(url, status_code=303)
     if flash:
         resp.set_cookie(
-            FLASH_COOKIE,
+            flash_cookie(request),
             quote(flash),
             max_age=60,
             path="/",
@@ -232,7 +301,7 @@ def render(request: Request, name: str, status_code: int = 200, **context: Any) 
     templates: Jinja2Templates = request.app.state.templates
     from urllib.parse import unquote
 
-    flash = unquote(request.cookies.get(FLASH_COOKIE, ""))
+    flash = unquote(request.cookies.get(flash_cookie(request), ""))
     cx = ctx(request)
     c = core(request)
     resp = templates.TemplateResponse(
@@ -249,5 +318,5 @@ def render(request: Request, name: str, status_code: int = 200, **context: Any) 
         status_code=status_code,
     )
     if flash:
-        resp.delete_cookie(FLASH_COOKIE, path="/", secure=c.cfg.server.cookie_secure)
+        resp.delete_cookie(flash_cookie(request), path="/", secure=c.cfg.server.cookie_secure)
     return resp

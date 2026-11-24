@@ -147,7 +147,8 @@ def test_wrong_password_lockout(env):
             r = login(c, "pat", "nope-nope-nope")
         assert r.status_code == 401
         r = login(c, "pat")  # right password, but locked
-        assert "Too many failed attempts" in r.text
+        assert r.status_code == 401 and "paused for 15 minutes" in r.text
+        assert c.get("/", follow_redirects=False).status_code == 303
     assert any("Account locked" in t for t, _ in env.sent) or True  # queued to notifier
 
 

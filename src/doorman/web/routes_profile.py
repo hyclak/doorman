@@ -2,20 +2,57 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
+from doorman import notify_urls
 from doorman.auth import passwords, totp
 from doorman.auth.passkeys import PasskeyError
-from doorman.notify import DEFAULT_EVENTS, EVENT_INFO, EventType
-from doorman.web.deps import check_csrf, core, form, redirect, render, require_user
+from doorman.notify import ADMIN_ONLY_EVENTS, ALERT_ROLES, DEFAULT_EVENTS, EventType, events_for_role
+from doorman.web.deps import (
+    Ctx,
+    Forbidden,
+    check_csrf,
+    client_ip,
+    core,
+    form,
+    notify_test_limiter,
+    off_loop,
+    redirect,
+    render,
+    require_recent,
+    require_user,
+)
 
 router = APIRouter(prefix="/profile")
 
-# Pending TOTP enrolment secrets, keyed by session id (in memory, short-lived by nature).
-_pending_totp: dict[str, str] = {}
+# Pending TOTP enrolment secrets, keyed by session id: (secret, monotonic time started).
+_pending_totp: dict[str, tuple[str, float]] = {}
+PENDING_TOTP_TTL_S = 900
+FACTOR_REAUTH = "Confirm it's you to change how you sign in."
+
+
+def _recent(request: Request, cx: Ctx) -> None:
+    """Adding or removing a sign-in method needs a fresh sign-in, so a stolen or borrowed session
+    can't plant its own passkey (which would survive a password change)."""
+    require_recent(request, cx, FACTOR_REAUTH, "/profile")
+
+
+def _pending_secret(session_id: str) -> str | None:
+    now = time.monotonic()
+    for k in [k for k, (_, t) in _pending_totp.items() if now - t > PENDING_TOTP_TTL_S]:
+        _pending_totp.pop(k, None)
+    entry = _pending_totp.get(session_id)
+    return entry[0] if entry else None
+
+
+def _factor_alert(request: Request, cx: Ctx, what: str) -> None:
+    c = core(request)
+    assert cx.user is not None
+    c.notifier.publish(EventType.SECURITY, f"{what}: {cx.user['username']}", f"From {client_ip(request)}.")
 
 
 def _profile_context(request: Request) -> dict[str, Any]:
@@ -25,6 +62,8 @@ def _profile_context(request: Request) -> dict[str, Any]:
     assert u is not None and cx.session is not None
     prefs = c.store.notify_prefs(u["id"])
     events = set(prefs["events"].split(",")) - {""} if prefs else DEFAULT_EVENTS[u["role"]]
+    if u["role"] != "admin":
+        events -= ADMIN_ONLY_EVENTS
     return {
         "u": u,
         "passkeys": c.store.passkeys(u["id"]),
@@ -34,7 +73,8 @@ def _profile_context(request: Request) -> dict[str, Any]:
         ),
         "sessions": c.store.user_sessions(u["id"]),
         "current_session": cx.session.id,
-        "event_info": EVENT_INFO,
+        "event_info": events_for_role(u["role"]),
+        "gets_alerts": u["role"] in ALERT_ROLES,
         "events": events,
         "use_shared": bool(prefs["use_shared"]) if prefs else True,
         "apprise_url": prefs["apprise_url"] if prefs else "",
@@ -56,12 +96,12 @@ async def change_password(request: Request) -> Response:
     check_csrf(request, data.get("csrf"))
     u = cx.user
     assert u is not None and cx.session is not None
-    if not passwords.verify_secret(u["password_hash"], str(data.get("current", ""))):
+    if not await off_loop(passwords.verify_secret, u["password_hash"], str(data.get("current", ""))):
         return redirect(request, "/profile", "Your current password didn't match.")
     if data.get("new") != data.get("confirm"):
         return redirect(request, "/profile", "The new passwords don't match.")
     try:
-        c.store.set_password(u["id"], str(data.get("new", "")))
+        await off_loop(c.store.set_password, u["id"], str(data.get("new", "")))
     except ValueError as e:
         return redirect(request, "/profile", str(e))
     c.store.delete_user_sessions(u["id"], except_id=cx.session.id)
@@ -78,8 +118,10 @@ async def totp_begin(request: Request) -> Response:
     data = await form(request)
     check_csrf(request, data.get("csrf"))
     assert cx.user is not None and cx.session is not None
+    _recent(request, cx)
     secret = totp.new_secret()
-    _pending_totp[cx.session.id] = secret
+    _pending_secret(cx.session.id)  # prunes stale entries
+    _pending_totp[cx.session.id] = (secret, time.monotonic())
     uri = totp.provisioning_uri(secret, cx.user["username"], "doorman")
     return render(request, "profile/totp.html", secret=secret, qr=totp.qr_svg(uri))
 
@@ -91,7 +133,7 @@ async def totp_confirm(request: Request) -> Response:
     data = await form(request)
     check_csrf(request, data.get("csrf"))
     assert cx.user is not None and cx.session is not None
-    secret = _pending_totp.get(cx.session.id)
+    secret = _pending_secret(cx.session.id)
     if not secret:
         return redirect(request, "/profile", "Setup expired. Start again.")
     step = totp.verify(secret, str(data.get("code", "")), 0)
@@ -108,6 +150,7 @@ async def totp_confirm(request: Request) -> Response:
     _pending_totp.pop(cx.session.id, None)
     c.store.update_user(cx.user["id"], totp_secret=secret, totp_last_step=step)
     c.store.audit(c.clock.now(), "user", cx.user["username"], "auth.totp_enabled", "", cx.user["id"])
+    _factor_alert(request, cx, "Authenticator app added")
     return redirect(request, "/profile", "Authenticator app added. You'll enter a code when you sign in.")
 
 
@@ -123,7 +166,7 @@ async def totp_disable(request: Request) -> Response:
         return redirect(
             request, "/profile", "Admins need a passkey or authenticator app. Add a passkey first."
         )
-    if not passwords.verify_secret(u["password_hash"], str(data.get("password", ""))):
+    if not await off_loop(passwords.verify_secret, u["password_hash"], str(data.get("password", ""))):
         return redirect(request, "/profile", "Password didn't match.")
     c.store.update_user(u["id"], totp_secret=None, totp_last_step=0)
     c.store.audit(c.clock.now(), "user", u["username"], "auth.totp_disabled", "", u["id"])
@@ -137,6 +180,7 @@ async def totp_disable(request: Request) -> Response:
 async def passkey_begin(request: Request) -> JSONResponse:
     cx = require_user(request)
     check_csrf(request, None)
+    _recent(request, cx)
     c = core(request)
     u = cx.user
     assert u is not None
@@ -149,12 +193,15 @@ async def passkey_begin(request: Request) -> JSONResponse:
 async def passkey_finish(request: Request) -> JSONResponse:
     cx = require_user(request)
     check_csrf(request, None)
+    _recent(request, cx)
     c = core(request)
     u = cx.user
     assert u is not None
     body = await request.json()
     try:
-        new = c.passkeys.finish_registration(str(body.get("handle", "")), body.get("credential") or {})
+        new = c.passkeys.finish_registration(
+            str(body.get("handle", "")), body.get("credential") or {}, u["id"]
+        )
     except PasskeyError as e:
         return JSONResponse({"detail": str(e)}, 400)
     if c.store.passkey_by_credential(new.credential_id):
@@ -169,6 +216,7 @@ async def passkey_finish(request: Request) -> JSONResponse:
         c.clock.now(),
     )
     c.store.audit(c.clock.now(), "user", u["username"], "auth.passkey_added", "", u["id"])
+    _factor_alert(request, cx, "Passkey added")
     return JSONResponse({"redirect": "/profile"})
 
 
@@ -178,6 +226,7 @@ async def passkey_delete(request: Request, passkey_id: int) -> Response:
     c = core(request)
     data = await form(request)
     check_csrf(request, data.get("csrf"))
+    _recent(request, cx)
     u = cx.user
     assert u is not None
     if u["role"] == "admin" and not u["totp_secret"] and len(c.store.passkeys(u["id"])) <= 1:
@@ -215,8 +264,11 @@ async def save_notifications(request: Request) -> Response:
     check_csrf(request, data.get("csrf"))
     u = cx.user
     assert u is not None
+    if u["role"] not in ALERT_ROLES:
+        raise Forbidden("Alerts are for Admin and Household accounts.")
     raw = data.get("events", [])
-    events = {e for e in ([raw] if isinstance(raw, str) else raw) if e in {x.value for x in EventType}}
+    allowed = {e.value for e in events_for_role(u["role"])}
+    events = {e for e in ([raw] if isinstance(raw, str) else raw) if e in allowed}
     try:
         c.store.update_user(u["id"], discord_user_id=str(data.get("discord_user_id", "")))
         c.store.set_notify_prefs(
@@ -235,13 +287,21 @@ async def test_notification(request: Request) -> Response:
     check_csrf(request, data.get("csrf"))
     u = cx.user
     assert u is not None
+    if u["role"] not in ALERT_ROLES:
+        raise Forbidden("Alerts are for Admin and Household accounts.")
+    if not notify_test_limiter.hit(f"user:{u['id']}"):
+        return redirect(request, "/profile#notifications", "Too many tests. Wait a few minutes.")
     prefs = c.store.notify_prefs(u["id"])
     targets = []
+    # Apprise refuses to send an empty body, so every test carries a message.
+    message = "Test notification from doorman."
     if (prefs is None or prefs["use_shared"]) and c.cfg.shared_discord_webhook:
-        body = f"<@{u['discord_user_id']}>" if u["discord_user_id"] else ""
+        body = f"{message}\n<@{u['discord_user_id']}>" if u["discord_user_id"] else message
         targets.append((c.cfg.shared_discord_webhook, body))
     if prefs and prefs["apprise_url"]:
-        targets.append((prefs["apprise_url"], ""))
+        if problem := notify_urls.problem(prefs["apprise_url"]):
+            return redirect(request, "/profile#notifications", problem)
+        targets.append((prefs["apprise_url"], message))
     if not targets:
         return redirect(request, "/profile#notifications", "No destination set up yet.")
     results = [

@@ -65,7 +65,9 @@ class MqttConfig:
     base_topic: str = "doorman"
     discovery_prefix: str = "homeassistant"
     # Let Home Assistant (or anything allowed to publish to <base>/door/set) operate the door.
-    allow_commands: bool = True
+    # MQTT commands skip schedules and sign-in, so this is opt-in: turn it on only with broker
+    # ACLs that limit who may publish to that topic (and preferably TLS).
+    allow_commands: bool = False
 
 
 @dataclass(frozen=True)

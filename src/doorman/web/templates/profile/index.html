@@ -60,6 +60,7 @@
   </form>
 </section>
 
+{% if gets_alerts %}
 <section class="card" id="notifications" aria-labelledby="notif-h">
   <h2 id="notif-h">Notifications</h2>
   <form method="post" action="/profile/notifications" class="stack">
@@ -87,7 +88,7 @@
       <label>Personal destination <small>(optional)</small>
         <input name="apprise_url" value="{{ apprise_url }}" placeholder="https://discord.com/api/webhooks/…" autocomplete="off" spellcheck="false">
       </label>
-      <p class="hint">Any <a href="https://github.com/caronc/apprise/wiki" rel="noopener noreferrer" target="_blank">Apprise URL</a>: a Discord webhook, ntfy topic, email, etc.</p>
+      <p class="hint">A Discord or Slack webhook link, an ntfy.sh link, or an <a href="https://github.com/caronc/apprise/wiki" rel="noopener noreferrer" target="_blank">Apprise URL</a> for Discord, Telegram, Pushover, Pushbullet, Slack or ntfy on a public server.</p>
     </fieldset>
     <div class="row">
       <button type="submit" class="btn-primary">Save</button>
@@ -95,6 +96,7 @@
   </form>
   <form method="post" action="/profile/notifications/test" class="inline">{{ csrf_field() }}<button type="submit" class="btn-ghost">Send me a test</button></form>
 </section>
+{% endif %}
 
 <section class="card" aria-labelledby="dev-h">
   <h2 id="dev-h">Signed-in devices</h2>

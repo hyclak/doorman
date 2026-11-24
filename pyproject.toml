@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "doorman"
-version = "0.1.0"
+version = "0.1.1"
 description = "Self-hosted garage door controller for a Raspberry Pi: RBAC, scheduled guest access, alerts, Home Assistant API."
 readme = "README.md"
 license = "MIT"

@@ -24,6 +24,9 @@ FLASH_COOKIE = "doorman_flash"
 
 login_limiter = RateLimiter(limit=10, window_s=300)
 pin_limiter = RateLimiter(limit=10, window_s=300)
+# Starting a passkey request proves nothing and costs one in-memory challenge; the sign-in page
+# starts one on every load (for autofill), so it gets its own, roomier budget.
+passkey_begin_limiter = RateLimiter(limit=60, window_s=300)
 
 
 class Redirect(Exception):

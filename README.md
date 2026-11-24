@@ -83,18 +83,26 @@ installs the wheel from a GitHub release, writes `/etc/doorman/doorman.toml` (se
 - Caddy in front of it for TLS (Route53 DNS-01) on `:3667`, plus a LAN-only listener for `/metrics`;
 - a nightly SQLite backup (`doorman backup`) pushed to the NAS.
 
-Useful commands on the Pi:
+Useful commands on the Pi. The role installs `/usr/local/bin/doorman`, a wrapper that runs the CLI
+as the service does (the `doorman` user, plus its config, secrets and working directory):
 
 ```bash
-sudo -u doorman doorman create-admin <username>
+sudo doorman create-admin <username>
 ```
 
 ```bash
-sudo -u doorman doorman set-password <username>
+sudo doorman set-password <username>
+```
+
+If someone loses their passkey or authenticator app, this removes both and signs them out. They
+can then sign in with their password and add new ones:
+
+```bash
+sudo doorman reset-mfa <username>
 ```
 
 ```bash
-sudo -u doorman doorman config-check
+sudo doorman config-check
 ```
 
 ### Releases

@@ -56,6 +56,8 @@ def main(argv: list[str] | None = None) -> None:
     c.add_argument("username")
     p = sub.add_parser("set-password", help="set a user's password (recovery)")
     p.add_argument("username")
+    r = sub.add_parser("reset-mfa", help="remove a user's passkeys and authenticator app (recovery)")
+    r.add_argument("username")
     b = sub.add_parser("backup", help="write a consistent snapshot of the database")
     b.add_argument("dest")
     sub.add_parser("config-check", help="validate the configuration and exit")
@@ -116,6 +118,18 @@ def main(argv: list[str] | None = None) -> None:
         store.delete_user_sessions(u["id"])
         store.audit(now, "system", "cli", "admin.password_reset", {"user": args.username})
         print("Password set; existing sessions signed out.")
+    elif args.cmd == "reset-mfa":
+        u = store.user_by_name(args.username)
+        if u is None:
+            sys.exit("No such user.")
+        n = store.delete_user_passkeys(u["id"])
+        store.update_user(u["id"], totp_secret=None, totp_last_step=0)
+        store.delete_user_sessions(u["id"])
+        store.audit(now, "system", "cli", "admin.mfa_reset", {"user": args.username, "passkeys": n})
+        print(
+            f"Removed {n} passkey(s) and the authenticator app for {args.username}; sessions signed out. "
+            "Sign in with the password and add a new second factor."
+        )
     elif args.cmd == "backup":
         db.backup_to(args.dest)
         print(f"Wrote {args.dest}")

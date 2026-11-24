@@ -27,7 +27,9 @@
     try { data = await res.json(); } catch (_) { /* empty */ }
     if (!res.ok) {
       if (data.redirect) { location.href = data.redirect; }
-      throw new Error(data.detail || `Request failed (${res.status})`);
+      const err = new Error(data.detail || `Request failed (${res.status})`);
+      err.data = data;
+      throw err;
     }
     return data;
   }
@@ -206,21 +208,74 @@
     };
   }
 
-  async function passkeyAssert(beginUrl, finishUrl, next) {
+  // WebAuthn Signal API (Chrome, Google Password Manager, 1Password, ...): tell the passkey
+  // provider which passkeys doorman accepts, so deleted or stale ones stop being offered.
+  // Unsupported browsers just skip it.
+  async function signal(fn, payload) {
+    if (!payload || typeof PublicKeyCredential === "undefined" || !PublicKeyCredential[fn]) return;
+    try { await PublicKeyCredential[fn](payload); } catch (_) { /* best effort */ }
+  }
+
+  async function passkeyAssert(beginUrl, finishUrl, next, extra) {
     const { handle, options } = await postJSON(beginUrl);
-    const cred = await navigator.credentials.get(requestOptions(options));
-    const out = await postJSON(finishUrl, { handle, credential: assertionJSON(cred), next });
+    const cred = await navigator.credentials.get({ ...requestOptions(options), ...(extra || {}) });
+    let out;
+    try {
+      out = await postJSON(finishUrl, { handle, credential: assertionJSON(cred), next });
+    } catch (err) {
+      if (err.data && err.data.unknown) await signal("signalUnknownCredential", err.data.unknown);
+      throw err;
+    }
+    await signal("signalAllAcceptedCredentials", out.accepted);
     location.href = out.redirect || "/";
   }
 
   function passkeyError(e) {
+    if (e && e.name === "AbortError") return;
     if (e && e.name === "NotAllowedError") return toast("Passkey request was cancelled or timed out.");
     toast(e.message || String(e));
+  }
+
+  // Passkey autofill on the sign-in page: a background ("conditional") request lets the
+  // password manager offer passkeys right in the username field's suggestions. Without it,
+  // picking a passkey there has nothing to answer and fails.
+  let autofill = null;
+  let autofillRearms = 0;
+  async function startAutofill() {
+    const field = document.querySelector('input[autocomplete~="webauthn"]');
+    if (!field || typeof PublicKeyCredential === "undefined") return;
+    if (!PublicKeyCredential.isConditionalMediationAvailable) return;
+    try { if (!(await PublicKeyCredential.isConditionalMediationAvailable())) return; } catch (_) { return; }
+    autofill = new AbortController();
+    const mine = autofill;
+    try {
+      await passkeyAssert("/login/passkey/begin", "/login/passkey/finish", field.form?.elements?.next?.value || "/",
+        { mediation: "conditional", signal: mine.signal });
+    } catch (err) {
+      if (mine.signal.aborted) return;
+      if (autofill === mine) autofill = null;
+      // The browser declining (NotAllowedError: no provider, or the user dismissed it) ends
+      // autofill for this page; the button still works. A server answer (a stale passkey, an
+      // expired request) re-arms it so the person can pick another, a few times at most.
+      if (!err || !err.data) return;
+      passkeyError(err);
+      if (autofillRearms++ < 3) setTimeout(startAutofill, 1000);
+    }
+  }
+  function stopAutofill() {
+    if (autofill) { autofill.abort(); autofill = null; }
   }
 
   const supported = !!(window.PublicKeyCredential && navigator.credentials);
   document.querySelectorAll("[data-passkey-login],[data-passkey-reauth],[data-passkey-register-wrap]").forEach((el) => { el.hidden = !supported; });
   document.querySelectorAll("[data-no-passkey]").forEach((el) => { el.hidden = supported; });
+  if (supported) {
+    startAutofill();
+    const accepted = document.querySelector("[data-passkey-accepted]");
+    if (accepted) {
+      try { signal("signalAllAcceptedCredentials", JSON.parse(accepted.dataset.passkeyAccepted)); } catch (_) { /* ignore */ }
+    }
+  }
 
   document.addEventListener("click", async (e) => {
     const login = e.target.closest("[data-passkey-login]");
@@ -229,6 +284,7 @@
     try {
       if (login) {
         login.disabled = true;
+        stopAutofill(); // only one passkey request may be pending at a time
         await passkeyAssert("/login/passkey/begin", "/login/passkey/finish", login.dataset.next || "/");
       } else if (reauth) {
         reauth.disabled = true;
@@ -245,6 +301,7 @@
       passkeyError(err);
     } finally {
       [login, reauth, register].forEach((b) => { if (b) b.disabled = false; });
+      if (login && !autofill) startAutofill();
     }
   });
 

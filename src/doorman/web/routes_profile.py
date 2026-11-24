@@ -28,6 +28,10 @@ def _profile_context(request: Request) -> dict[str, Any]:
     return {
         "u": u,
         "passkeys": c.store.passkeys(u["id"]),
+        # Lets the browser / password manager hide passkeys doorman no longer accepts (Signal API).
+        "passkey_accepted": c.passkeys.signal_accepted(
+            u["id"], [bytes(p["credential_id"]) for p in c.store.passkeys(u["id"])]
+        ),
         "sessions": c.store.user_sessions(u["id"]),
         "current_session": cx.session.id,
         "event_info": EVENT_INFO,

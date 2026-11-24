@@ -130,8 +130,24 @@ sudo doorman version
 ### Releases
 
 Pushing a `v*` tag builds the wheel and a Caddy binary for `linux/arm/v6` with the Route53 DNS
-module, and attaches both to a GitHub release along with SHA-256 checksums. To deploy, set
-`app_doorman__version` in Ansible to the new tag.
+module, and attaches both to a GitHub release along with SHA-256 checksums. The release fails if
+the tag doesn't match the package version.
+
+Each PR adds its user-visible changes under **Unreleased** in [CHANGELOG.md](CHANGELOG.md). To
+release:
+
+1. In a PR, set `__version__` in `src/doorman/__init__.py`. This is the only place the version is
+   set, and `pyproject.toml` reads it from there. Use a patch bump for fixes, a minor bump for new
+   features or changed defaults.
+2. In the same PR, rename **Unreleased** in the changelog to the new version and date, add a fresh
+   empty **Unreleased** heading, and update the comparison links at the bottom.
+3. Merge, then tag `main` and push the tag:
+
+   ```bash
+   git checkout main && git pull && git tag vX.Y.Z && git push origin vX.Y.Z
+   ```
+
+4. To deploy, set `app_doorman__version` in Ansible to the new version and run the role.
 
 ## REST API
 

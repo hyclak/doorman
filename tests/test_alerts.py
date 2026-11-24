@@ -145,5 +145,8 @@ def test_notifier_routes_per_user(tmp_path):
     sends = n.deliveries(Message(EventType.SECURITY, "Locked", ""))
     assert sends == [("discord://hook/token", "Locked", "<@111>")]
 
+    # Viewers get no alerts, even with a personal URL saved (Admin and Household only).
+    assert n.deliveries(Message(EventType.DOOR_CHANGE, "Opened", "By pat")) == []
+    store.set_notify_prefs(h, {"door_change"}, use_shared=False, apprise_url="ntfy://ntfy.sh/house-topic")
     sends = n.deliveries(Message(EventType.DOOR_CHANGE, "Opened", "By pat"))
-    assert sends == [("ntfy://ntfy.sh/secret-topic", "Opened", "By pat")]
+    assert sends == [("ntfy://ntfy.sh/house-topic", "Opened", "By pat")]

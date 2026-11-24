@@ -132,10 +132,10 @@ def test_personal_url_refused(url):
     assert notify_urls.problem(url)
 
 
-def test_viewer_cannot_save_internal_notification_url(env):
-    uid = env.core.store.create_user("watcher", PW, "viewer", env.clock.now())
+def test_household_cannot_save_internal_notification_url(env):
+    uid = env.core.store.create_user("fam", PW, "household", env.clock.now())
     with env.client() as c:
-        login(c, "watcher")
+        login(c, "fam")
         r = c.post(
             "/profile/notifications",
             data={"csrf": _page_csrf(c), "apprise_url": "json://127.0.0.1:2019/stop?method=POST"},
@@ -172,20 +172,39 @@ def test_test_notification_is_rate_limited(env):
 
 def test_security_alerts_go_to_admins_only(env):
     a = env.core.store.create_user("boss", PW, "admin", env.clock.now())
-    v = env.core.store.create_user("walker", PW, "scheduled", env.clock.now())
+    h = env.core.store.create_user("fam", PW, "household", env.clock.now())
     env.core.store.set_notify_prefs(a, {"security"}, False, "ntfys://ntfy.sh/admin-topic")
-    env.core.store.set_notify_prefs(v, {"security"}, False, "ntfys://ntfy.sh/walker-topic")
+    env.core.store.set_notify_prefs(h, {"security"}, False, "ntfys://ntfy.sh/fam-topic")
     sends = env.core.notifier.deliveries(Message(EventType.SECURITY, "Admin sign-in", "From 1.2.3.4"))
     assert [s[0] for s in sends] == ["ntfys://ntfy.sh/admin-topic"]
     with env.client() as c:
-        login(c, "walker")
+        login(c, "fam")
         page = c.get("/profile").text
         assert 'value="security"' not in page and 'value="door_change"' in page
         c.post(
             "/profile/notifications",
             data={"csrf": csrf(page), "events": ["security", "door_change"], "apprise_url": ""},
         )
-    assert env.core.store.notify_prefs(v)["events"] == "door_change"
+    assert env.core.store.notify_prefs(h)["events"] == "door_change"
+
+
+@pytest.mark.parametrize("role", ["viewer", "scheduled"])
+def test_viewer_and_scheduled_get_no_alerts(env, role):
+    uid = env.core.store.create_user("other", PW, role, env.clock.now())
+    env.core.store.update_user(uid, discord_user_id="999")
+    # Preferences saved before this rule existed are ignored too.
+    env.core.store.set_notify_prefs(uid, {e.value for e in EventType}, True, "ntfys://ntfy.sh/other-topic")
+    for event in EventType:
+        assert env.core.notifier.deliveries(Message(event, "t", "b")) == []
+    with env.client() as c:
+        login(c, "other")
+        page = c.get("/profile").text
+        assert 'id="notifications"' not in page
+        token = csrf(page)
+        r = c.post("/profile/notifications", data={"csrf": token, "apprise_url": "discord://1/2"})
+        assert r.status_code == 403
+        assert c.post("/profile/notifications/test", data={"csrf": token}).status_code == 403
+    assert env.sent == []
 
 
 # ---- passkeys: user verification --------------------------------------------------------------

@@ -57,12 +57,17 @@ DEFAULT_EVENTS: dict[str, set[str]] = {
     "viewer": set(),
 }
 
+# Alerts reveal when the door opens and who opened it (and so when the house is empty), so only
+# Admin and Household accounts receive them. Viewer and Scheduled accounts get none.
+ALERT_ROLES: frozenset[str] = frozenset({"admin", "household"})
 # Security alerts carry admin sign-in IPs and lockout details, so only admins receive them.
 ADMIN_ONLY_EVENTS: frozenset[str] = frozenset({EventType.SECURITY.value})
 
 
 def events_for_role(role: str) -> dict[EventType, tuple[str, str]]:
-    """The event types a user with ``role`` may subscribe to."""
+    """The event types a user with ``role`` may subscribe to (none outside ALERT_ROLES)."""
+    if role not in ALERT_ROLES:
+        return {}
     return {e: info for e, info in EVENT_INFO.items() if role == "admin" or e.value not in ADMIN_ONLY_EVENTS}
 
 
@@ -112,7 +117,7 @@ class Notifier:
         shared_wanted = False
         personal: dict[str, None] = {}
         for u in self.store.users():
-            if u["disabled"]:
+            if u["disabled"] or u["role"] not in ALERT_ROLES:
                 continue
             prefs = self.store.notify_prefs(u["id"])
             events = set(prefs["events"].split(",")) if prefs else DEFAULT_EVENTS[u["role"]]

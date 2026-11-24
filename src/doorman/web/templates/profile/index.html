@@ -60,6 +60,7 @@
   </form>
 </section>
 
+{% if gets_alerts %}
 <section class="card" id="notifications" aria-labelledby="notif-h">
   <h2 id="notif-h">Notifications</h2>
   <form method="post" action="/profile/notifications" class="stack">
@@ -95,6 +96,7 @@
   </form>
   <form method="post" action="/profile/notifications/test" class="inline">{{ csrf_field() }}<button type="submit" class="btn-ghost">Send me a test</button></form>
 </section>
+{% endif %}
 
 <section class="card" aria-labelledby="dev-h">
   <h2 id="dev-h">Signed-in devices</h2>

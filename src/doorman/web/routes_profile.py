@@ -11,9 +11,10 @@ from fastapi.responses import JSONResponse, Response
 from doorman import notify_urls
 from doorman.auth import passwords, totp
 from doorman.auth.passkeys import PasskeyError
-from doorman.notify import ADMIN_ONLY_EVENTS, DEFAULT_EVENTS, EventType, events_for_role
+from doorman.notify import ADMIN_ONLY_EVENTS, ALERT_ROLES, DEFAULT_EVENTS, EventType, events_for_role
 from doorman.web.deps import (
     Ctx,
+    Forbidden,
     check_csrf,
     client_ip,
     core,
@@ -73,6 +74,7 @@ def _profile_context(request: Request) -> dict[str, Any]:
         "sessions": c.store.user_sessions(u["id"]),
         "current_session": cx.session.id,
         "event_info": events_for_role(u["role"]),
+        "gets_alerts": u["role"] in ALERT_ROLES,
         "events": events,
         "use_shared": bool(prefs["use_shared"]) if prefs else True,
         "apprise_url": prefs["apprise_url"] if prefs else "",
@@ -262,6 +264,8 @@ async def save_notifications(request: Request) -> Response:
     check_csrf(request, data.get("csrf"))
     u = cx.user
     assert u is not None
+    if u["role"] not in ALERT_ROLES:
+        raise Forbidden("Alerts are for Admin and Household accounts.")
     raw = data.get("events", [])
     allowed = {e.value for e in events_for_role(u["role"])}
     events = {e for e in ([raw] if isinstance(raw, str) else raw) if e in allowed}
@@ -283,6 +287,8 @@ async def test_notification(request: Request) -> Response:
     check_csrf(request, data.get("csrf"))
     u = cx.user
     assert u is not None
+    if u["role"] not in ALERT_ROLES:
+        raise Forbidden("Alerts are for Admin and Household accounts.")
     if not notify_test_limiter.hit(f"user:{u['id']}"):
         return redirect(request, "/profile#notifications", "Too many tests. Wait a few minutes.")
     prefs = c.store.notify_prefs(u["id"])

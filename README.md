@@ -133,8 +133,9 @@ Pushing a `v*` tag builds the wheel and a Caddy binary for `linux/arm/v6` with t
 module, and attaches both to a GitHub release along with SHA-256 checksums. The release fails if
 the tag doesn't match the package version.
 
-Each PR adds its user-visible changes under **Unreleased** in [CHANGELOG.md](CHANGELOG.md). To
-release:
+Each PR adds its user-visible changes under **Unreleased** in [CHANGELOG.md](CHANGELOG.md). CI
+fails if the package version has no dated changelog entry (`python scripts/changelog.py check`),
+and the release uses that entry as its release notes. To release:
 
 1. In a PR, set `__version__` in `src/doorman/__init__.py`. This is the only place the version is
    set, and `pyproject.toml` reads it from there. Use a patch bump for fixes, a minor bump for new

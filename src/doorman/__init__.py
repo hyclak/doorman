@@ -1,3 +1,3 @@
 """doorman: self-hosted garage door controller."""
 
-__version__ = "0.2.1"
+__version__ = "0.3.0"

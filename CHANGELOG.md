@@ -6,6 +6,17 @@ in the same PR as the change; it is renamed to the version when releasing (see t
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-24
+
+### Added
+- This changelog. Each PR adds its changes under Unreleased.
+- CI fails when the package version has no dated changelog entry (`python scripts/changelog.py check`).
+- GitHub releases use the version's changelog entry as their release notes.
+- A release checklist in the README.
+
+### Changed
+- The package version is set only in `src/doorman/__init__.py`. `pyproject.toml` reads it from there.
+
 ## [0.2.1] - 2026-11-24
 
 ### Added
@@ -15,7 +26,6 @@ in the same PR as the change; it is renamed to the version when releasing (see t
 - The example config and README use placeholder hostnames and addresses.
 - The example config's `reed_pull` is now `"none"`, with a note on when to use it. `"as-is"` left the
   boot pull-down on, so a reed switch with an external resistor always read as closed.
-- The package version is set only in `src/doorman/__init__.py`.
 
 ## [0.2.0] - 2026-11-24
 
@@ -56,7 +66,8 @@ in the same PR as the change; it is renamed to the version when releasing (see t
 
 First release.
 
-[Unreleased]: https://github.com/hyclak/doorman/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/hyclak/doorman/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/hyclak/doorman/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/hyclak/doorman/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/hyclak/doorman/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/hyclak/doorman/compare/v0.1.0...v0.1.1

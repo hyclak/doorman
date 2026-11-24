@@ -287,13 +287,15 @@ async def test_notification(request: Request) -> Response:
         return redirect(request, "/profile#notifications", "Too many tests. Wait a few minutes.")
     prefs = c.store.notify_prefs(u["id"])
     targets = []
+    # Apprise refuses to send an empty body, so every test carries a message.
+    message = "Test notification from doorman."
     if (prefs is None or prefs["use_shared"]) and c.cfg.shared_discord_webhook:
-        body = f"<@{u['discord_user_id']}>" if u["discord_user_id"] else ""
+        body = f"{message}\n<@{u['discord_user_id']}>" if u["discord_user_id"] else message
         targets.append((c.cfg.shared_discord_webhook, body))
     if prefs and prefs["apprise_url"]:
         if problem := notify_urls.problem(prefs["apprise_url"]):
             return redirect(request, "/profile#notifications", problem)
-        targets.append((prefs["apprise_url"], ""))
+        targets.append((prefs["apprise_url"], message))
     if not targets:
         return redirect(request, "/profile#notifications", "No destination set up yet.")
     results = [

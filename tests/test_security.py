@@ -104,8 +104,16 @@ def test_personal_url_allowed(url):
         "jsons://example.com/hook",
         "xml://10.10.40.1/",
         "form://192.168.1.1/",
-        "ntfys://ntfy.internal.example/topic",  # resolves to a LAN address
-        "ntfys://rebind.example/topic",  # one public, one loopback address
+        "ntfys://ntfy.internal.example/topic",
+        "ntfys://attacker.example/t",  # public, but could 307-redirect or DNS-rebind to the LAN
+        "ntfys://attacker.example/t?redirect=yes",
+        "ntfys://ntfy.sh/t?redirect=yes",
+        "ntfys://ntfy.sh/t?Redirect=Yes",
+        "discord://1234/abcd?redirect=yes",
+        "ntfys://ntfy.sh:2019/t",
+        "ntfys://ntfy.sh@127.0.0.1/t",
+        "ntfys://ntfy.sh\\@127.0.0.1/t",
+        "ntfys://ntfy.sh.attacker.example/t",
         "ntfys://127.0.0.1:2019/x",
         "ntfys://[::1]/x",
         "ntfys://[::ffff:127.0.0.1]/x",
@@ -421,3 +429,94 @@ def test_admin_resetting_own_password_signs_out_other_devices(env):
         c.post(f"/admin/users/{uid}/password", data={"csrf": csrf(page), "password": "another-horse-7"})
         assert c.get("/", follow_redirects=False).status_code == 200  # this device stays signed in
     assert env.core.store.session(other_token, env.clock.now()) is None
+
+
+# ---- follow-up review ------------------------------------------------------------------------------
+
+
+def test_ntfy_server_redirect_is_not_followed_to_the_lan():
+    """Why ntfy hosts are matched by name: Apprise follows a public server's 307 to anywhere."""
+    import http.server
+
+    from doorman.notify import apprise_sender
+
+    hits = []
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_POST(self):
+            hits.append(self.path)
+            if self.path != "/internal":
+                self.send_response(307)
+                self.send_header("Location", f"http://127.0.0.1:{port}/internal")
+            else:
+                self.send_response(200)
+            self.end_headers()
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    port = srv.server_address[1]
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        apprise_sender(f"ntfy://127.0.0.1:{port}/t", "t", "b")
+    finally:
+        srv.shutdown()
+    assert "/internal" in hits  # Apprise really follows it...
+    assert notify_urls.problem(f"ntfy://127.0.0.1:{port}/t")  # ...so such URLs are refused
+
+
+def test_send_test_always_has_a_body(env):
+    """Apprise refuses an empty body before sending anything."""
+    uid = env.core.store.create_user("fam", PW, "household", env.clock.now())
+    env.core.store.set_notify_prefs(uid, {"quiet_hours"}, True, "ntfys://ntfy.sh/fam-topic")
+    with env.client() as c:
+        login(c, "fam")
+        r = c.post("/profile/notifications/test", data={"csrf": _page_csrf(c)})
+        assert "Test sent" in r.text
+    assert len(env.sent) == 2  # shared webhook (no Discord ID) and the personal URL
+    assert all(body.strip() for _, body in env.sent)
+
+
+def test_lockout_looks_like_a_wrong_password(env):
+    env.core.store.create_user("pat", PW, "household", env.clock.now())
+    hashed = []
+    from doorman.auth import passwords
+
+    real = passwords.verify_secret
+
+    def spy(stored, candidate):
+        hashed.append(stored)
+        return real(stored, candidate)
+
+    passwords.verify_secret = spy
+    try:
+        with env.client() as c:
+            for _ in range(5):
+                login(c, "pat", "nope-nope-nope")
+            hashed.clear()
+            locked = login(c, "pat", "nope-nope-nope")
+            unknown = login(c, "nobody-here", "nope-nope-nope")
+    finally:
+        passwords.verify_secret = real
+    assert locked.status_code == unknown.status_code == 401
+    assert re.search(r'role="alert">([^<]*)', locked.text).group(1) == re.search(
+        r'role="alert">([^<]*)', unknown.text
+    ).group(1)
+    assert len(hashed) == 2  # one hash each: the locked account isn't answered faster
+
+
+def test_openapi_schema_not_published(env):
+    with env.client() as c:
+        assert c.get("/api/v1/openapi.json").status_code == 404
+
+
+def test_sign_in_answers_busy_when_hash_queue_is_full(env, monkeypatch):
+    env.core.store.create_user("fam", PW, "household", env.clock.now())
+    monkeypatch.setattr(deps, "_hash_pending", deps.HASH_QUEUE_LIMIT)
+    with env.client() as c:
+        r = c.post("/login", data={"username": "fam", "password": PW, "next": "/"})
+        assert r.status_code == 429
+    monkeypatch.setattr(deps, "_hash_pending", 0)
+    with env.client() as c:
+        assert login(c, "fam").status_code == 200

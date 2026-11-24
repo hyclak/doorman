@@ -111,12 +111,27 @@ def rate_key(ip: str) -> str:
 # Password and PIN hashing (argon2id, ~19 MiB each) runs on one dedicated thread: it never stalls
 # the event loop (door monitor, watchdog, other requests), a flood of sign-in attempts queues
 # instead of exhausting memory, and check-then-update sequences in the store run one at a time.
+#
+# The cost: a flood from many addresses queues up and delays real sign-ins (~1.2 s per hash on a
+# Pi Zero). Unauthenticated entry points (sign-in, guest PIN) check hash_queue_full() first and
+# answer 429 rather than join a queue that would take longer than HASH_QUEUE_LIMIT hashes.
 _hash_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="doorman-hash")
+HASH_QUEUE_LIMIT = 8
+_hash_pending = 0  # only touched on the event loop thread
+
+
+def hash_queue_full() -> bool:
+    return _hash_pending >= HASH_QUEUE_LIMIT
 
 
 async def off_loop[T](fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    global _hash_pending
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_hash_pool, functools.partial(fn, *args, **kwargs))
+    _hash_pending += 1
+    try:
+        return await loop.run_in_executor(_hash_pool, functools.partial(fn, *args, **kwargs))
+    finally:
+        _hash_pending -= 1
 
 
 def load_ctx(request: Request) -> Ctx:

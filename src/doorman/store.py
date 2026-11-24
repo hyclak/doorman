@@ -161,14 +161,21 @@ class Store:
         return int(row["n"]) if row else 0
 
     def check_login(self, username: str, password: str, now: datetime) -> tuple[sqlite3.Row | None, str]:
-        """Verify a password. Returns (user, error). Applies the per-account lockout."""
+        """Verify a password. Applies the per-account lockout.
+
+        Returns (user, "") on success, else (None, reason) where reason is "wrong", "locked" (this
+        attempt locked the account), "still_locked" or "disabled". Every failure costs one
+        password hash, so timing doesn't reveal whether the username exists or is locked; callers
+        show the same message for all but "disabled" (which needs the right password).
+        """
         u = self.user_by_name(username)
         if u is None:
             passwords.verify_secret(None, password)  # equalize timing
-            return None, "Wrong username or password."
+            return None, "wrong"
         locked = parse(u["locked_until"])
         if locked and locked > now:
-            return None, "Too many failed attempts. Try again later."
+            passwords.verify_secret(u["password_hash"], password)  # equalize timing; result ignored
+            return None, "still_locked"
         if not passwords.verify_secret(u["password_hash"], password):
             # Count in SQL rather than from the row read above, so concurrent attempts can't each
             # see the same old count and slip past the lockout.
@@ -180,9 +187,9 @@ class Store:
                     (iso(now + LOCKOUT), u["id"]),
                 )
                 return None, "locked"
-            return None, "Wrong username or password."
+            return None, "wrong"
         if u["disabled"]:
-            return None, "This account is disabled."
+            return None, "disabled"
         if passwords.needs_rehash(u["password_hash"]):
             self.db.execute(
                 "UPDATE users SET password_hash = ? WHERE id = ?", (passwords.hash_secret(password), u["id"])

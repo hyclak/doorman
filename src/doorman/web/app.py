@@ -102,7 +102,9 @@ def create_app(cfg: Config, core: Core | None = None) -> FastAPI:
         lifespan=lifespan,
         docs_url=None,
         redoc_url=None,
-        openapi_url="/api/v1/openapi.json",
+        # No published schema: it would list every route (admin and dev ones included) to anyone.
+        # The REST API is documented in the README.
+        openapi_url=None,
     )
     app.state.core = core
 

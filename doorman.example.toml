@@ -39,4 +39,4 @@ username = "doorman"
 tls = false
 base_topic = "doorman"
 discovery_prefix = "homeassistant"
-allow_commands = true
+allow_commands = true         # default false; MQTT commands skip schedules, so lock down the topic with broker ACLs

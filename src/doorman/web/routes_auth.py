@@ -22,6 +22,7 @@ from doorman.web.deps import (
     core,
     ctx,
     form,
+    hash_queue_full,
     login_limiter,
     off_loop,
     passkey_begin_limiter,
@@ -35,6 +36,10 @@ from doorman.web.deps import (
 
 router = APIRouter()
 log = logging.getLogger(__name__)
+
+# One message for an unknown user, a wrong password and a locked account, so the answer doesn't
+# reveal which usernames exist. The lockout rule is stated for everyone alike.
+LOGIN_FAILED = "Wrong username or password. After 5 wrong tries, an account is paused for 15 minutes."
 
 
 def needs_second_factor(request: Request, u: sqlite3.Row) -> bool:
@@ -85,6 +90,15 @@ async def login(request: Request) -> Response:
     nxt = safe_next(data.get("next"))
     ip = client_ip(request)
     username = str(data.get("username", "")).strip()
+    if hash_queue_full():
+        return render(
+            request,
+            "login.html",
+            429,
+            next=nxt,
+            username=username,
+            error="Sign-in is busy right now. Wait a moment and try again.",
+        )
     if not login_limiter.hit(rate_key(ip)):
         return render(
             request,
@@ -102,8 +116,10 @@ async def login(request: Request) -> Response:
             c.notifier.publish(
                 EventType.SECURITY, f"Account locked: {username}", f"Too many wrong passwords from {ip}."
             )
-            err = "Too many failed attempts. Try again later."
-        return render(request, "login.html", 401, next=nxt, username=username, error=err)
+        elif err == "still_locked":
+            c.store.audit(c.clock.now(), "user", username, "auth.locked_attempt", "", None, ip)
+        message = "This account is disabled." if err == "disabled" else LOGIN_FAILED
+        return render(request, "login.html", 401, next=nxt, username=username, error=message)
     if needs_second_factor(request, u):
         resp = redirect(request, f"/login/mfa?next={quote(nxt, safe='')}")
         _start_session(request, u, resp, pending=True)

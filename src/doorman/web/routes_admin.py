@@ -13,7 +13,7 @@ from doorman.notify import EventType
 from doorman.schedules import DAY_NAMES
 from doorman.settings import SETTINGS
 from doorman.store import ROLE_HELP, ROLES
-from doorman.web.deps import check_csrf, client_ip, core, form, redirect, render, require_admin
+from doorman.web.deps import check_csrf, client_ip, core, form, off_loop, redirect, render, require_admin
 from doorman.web.forms import FormError, parse_window
 
 router = APIRouter(prefix="/admin")
@@ -55,7 +55,8 @@ async def create_user(request: Request) -> Response:
     cx, data = await _mutate(request)
     c = core(request)
     try:
-        uid = c.store.create_user(
+        uid = await off_loop(
+            c.store.create_user,
             str(data.get("username", "")),
             str(data.get("password", "")),
             str(data.get("role", "")),
@@ -111,6 +112,10 @@ async def update_user(request: Request, uid: int) -> Response:
         return redirect(request, f"/admin/users/{uid}", str(e))
     if disabled or role != u["role"]:
         c.store.delete_user_sessions(uid)
+    if role in ("admin", "household") and u["role"] not in ("admin", "household"):
+        # Guest links are only for time-limited accounts; once always-allowed, they'd grant
+        # anyone holding one unlimited access.
+        c.store.revoke_user_links(uid)
     _audit(request, cx, "admin.user_updated", {"user": u["username"], "role": role, "disabled": disabled})
     return redirect(request, f"/admin/users/{uid}", "Saved.")
 
@@ -120,11 +125,11 @@ async def reset_password(request: Request, uid: int) -> Response:
     cx, data = await _mutate(request)
     c = core(request)
     try:
-        c.store.set_password(uid, str(data.get("password", "")))
+        await off_loop(c.store.set_password, uid, str(data.get("password", "")))
     except ValueError as e:
         return redirect(request, f"/admin/users/{uid}", str(e))
-    if uid != cx.user["id"]:
-        c.store.delete_user_sessions(uid)
+    # Sign out their devices; when resetting your own, keep only this one.
+    c.store.delete_user_sessions(uid, except_id=cx.session.id if uid == cx.user["id"] else None)
     _audit(request, cx, "admin.password_reset", {"user_id": uid})
     return redirect(request, f"/admin/users/{uid}", "Password set. Their devices were signed out.")
 
@@ -217,7 +222,8 @@ async def create_link(request: Request) -> Response:
         w = parse_window({**data, "kind": "once"}, c.clock.tz, allow_kinds=("once",))
         if w.is_expired(c.clock.now()):
             raise FormError("That time has already passed.")
-        link_id, token, pin = c.store.create_link(
+        link_id, token, pin = await off_loop(
+            c.store.create_link,
             uid,
             str(data.get("label", "")),
             w,

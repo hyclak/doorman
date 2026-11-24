@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from doorman import notify_urls
 from doorman.auth import passwords, tokens
 from doorman.db import Database
 from doorman.schedules import Window, from_row, next_midnight, to_params
@@ -169,13 +170,15 @@ class Store:
         if locked and locked > now:
             return None, "Too many failed attempts. Try again later."
         if not passwords.verify_secret(u["password_hash"], password):
-            failed = u["failed_logins"] + 1
-            lock = iso(now + LOCKOUT) if failed >= MAX_FAILED_LOGINS else None
-            self.db.execute(
-                "UPDATE users SET failed_logins = ?, locked_until = ? WHERE id = ?",
-                (0 if lock else failed, lock, u["id"]),
-            )
-            if lock:
+            # Count in SQL rather than from the row read above, so concurrent attempts can't each
+            # see the same old count and slip past the lockout.
+            self.db.execute("UPDATE users SET failed_logins = failed_logins + 1 WHERE id = ?", (u["id"],))
+            row = self.db.one("SELECT failed_logins FROM users WHERE id = ?", (u["id"],))
+            if row is not None and row["failed_logins"] >= MAX_FAILED_LOGINS:
+                self.db.execute(
+                    "UPDATE users SET failed_logins = 0, locked_until = ? WHERE id = ?",
+                    (iso(now + LOCKOUT), u["id"]),
+                )
                 return None, "locked"
             return None, "Wrong username or password."
         if u["disabled"]:
@@ -411,22 +414,37 @@ class Store:
             return "This link has already been used on another device. Ask for a new one."
         return None
 
-    def redeem_link(self, link: sqlite3.Row, pin: str) -> tuple[bool, bool]:
-        """Check the PIN. Returns (ok, now_locked)."""
+    def redeem_link(self, link_id: int, pin: str) -> str:
+        """Check a guest PIN. Returns "ok", "bad" (wrong PIN), "locked" (this wrong PIN locked the
+        link) or "unusable" (already locked, used up, revoked or gone).
+
+        The link is re-read here rather than trusting a row loaded earlier in the request, so
+        concurrent guesses can't all pass the attempt limit before any of them is counted.
+        """
+        link = self.link(link_id)
+        if link is None or self.link_problem(link):
+            return "unusable"
         if passwords.verify_secret(link["pin_hash"], pin.strip()):
-            self.db.execute(
-                "UPDATE guest_links SET redemptions = redemptions + 1 WHERE id = ?", (link["id"],)
-            )
-            return True, False
+            self.db.execute("UPDATE guest_links SET redemptions = redemptions + 1 WHERE id = ?", (link_id,))
+            return "ok"
         self.db.execute(
-            "UPDATE guest_links SET failed_attempts = failed_attempts + 1 WHERE id = ?", (link["id"],)
+            "UPDATE guest_links SET failed_attempts = failed_attempts + 1 WHERE id = ?", (link_id,)
         )
-        return False, link["failed_attempts"] + 1 >= MAX_PIN_ATTEMPTS
+        return "locked" if link["failed_attempts"] + 1 >= MAX_PIN_ATTEMPTS else "bad"
 
     def revoke_link(self, link_id: int) -> None:
         with self.db.transaction() as c:
             c.execute("UPDATE guest_links SET revoked = 1 WHERE id = ?", (link_id,))
             c.execute("DELETE FROM sessions WHERE link_id = ?", (link_id,))
+
+    def revoke_user_links(self, user_id: int) -> None:
+        """Turn off every guest link attached to an account (e.g. when it becomes always-allowed)."""
+        with self.db.transaction() as c:
+            c.execute("UPDATE guest_links SET revoked = 1 WHERE user_id = ?", (user_id,))
+            c.execute(
+                "DELETE FROM sessions WHERE link_id IN (SELECT id FROM guest_links WHERE user_id = ?)",
+                (user_id,),
+            )
 
     def delete_link(self, link_id: int) -> None:
         with self.db.transaction() as c:
@@ -473,8 +491,8 @@ class Store:
 
     def set_notify_prefs(self, user_id: int, events: set[str], use_shared: bool, apprise_url: str) -> None:
         apprise_url = apprise_url.strip()
-        if apprise_url and "://" not in apprise_url:
-            raise ValueError("That doesn't look like a notification URL.")
+        if apprise_url and (problem := notify_urls.problem(apprise_url)):
+            raise ValueError(problem)
         self.db.execute(
             "INSERT INTO notify_prefs(user_id, events, use_shared, apprise_url) VALUES(?,?,?,?) "
             "ON CONFLICT(user_id) DO UPDATE SET events = excluded.events, use_shared = excluded.use_shared, "

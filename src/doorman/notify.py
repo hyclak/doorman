@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from doorman import notify_urls
 from doorman.store import Store
 
 log = logging.getLogger(__name__)
@@ -55,6 +56,14 @@ DEFAULT_EVENTS: dict[str, set[str]] = {
     "scheduled": set(),
     "viewer": set(),
 }
+
+# Security alerts carry admin sign-in IPs and lockout details, so only admins receive them.
+ADMIN_ONLY_EVENTS: frozenset[str] = frozenset({EventType.SECURITY.value})
+
+
+def events_for_role(role: str) -> dict[EventType, tuple[str, str]]:
+    """The event types a user with ``role`` may subscribe to."""
+    return {e: info for e, info in EVENT_INFO.items() if role == "admin" or e.value not in ADMIN_ONLY_EVENTS}
 
 
 @dataclass(frozen=True)
@@ -109,13 +118,19 @@ class Notifier:
             events = set(prefs["events"].split(",")) if prefs else DEFAULT_EVENTS[u["role"]]
             if msg.event.value not in events:
                 continue
+            if msg.event.value in ADMIN_ONLY_EVENTS and u["role"] != "admin":
+                continue
             use_shared = bool(prefs["use_shared"]) if prefs else True
             if use_shared and self.shared_webhook:
                 shared_wanted = True
                 if u["discord_user_id"]:
                     mentions.append(f"<@{u['discord_user_id']}>")
             if prefs and prefs["apprise_url"]:
-                personal[prefs["apprise_url"]] = None
+                # Re-checked at send time: rows saved before this check existed, and DNS can change.
+                if problem := notify_urls.problem(prefs["apprise_url"]):
+                    log.warning("skipping %s's notification URL: %s", u["username"], problem)
+                else:
+                    personal[prefs["apprise_url"]] = None
         out: list[tuple[str, str, str]] = []
         if shared_wanted:
             body = msg.body

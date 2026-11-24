@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
@@ -14,6 +15,7 @@ from doorman.auth.passkeys import PasskeyError, UnknownPasskey, user_id_from_han
 from doorman.notify import EventType
 from doorman.store import SESSION_DAYS
 from doorman.web.deps import (
+    account_limiter,
     check_csrf,
     clear_session_cookie,
     client_ip,
@@ -21,7 +23,9 @@ from doorman.web.deps import (
     ctx,
     form,
     login_limiter,
+    off_loop,
     passkey_begin_limiter,
+    rate_key,
     redirect,
     render,
     require_user,
@@ -81,7 +85,7 @@ async def login(request: Request) -> Response:
     nxt = safe_next(data.get("next"))
     ip = client_ip(request)
     username = str(data.get("username", "")).strip()
-    if not login_limiter.hit(f"ip:{ip}"):
+    if not login_limiter.hit(rate_key(ip)):
         return render(
             request,
             "login.html",
@@ -90,7 +94,7 @@ async def login(request: Request) -> Response:
             username=username,
             error="Too many sign-in attempts. Wait a few minutes.",
         )
-    u, err = c.store.check_login(username, str(data.get("password", "")), c.clock.now())
+    u, err = await off_loop(c.store.check_login, username, str(data.get("password", "")), c.clock.now())
     if u is None:
         c.metrics.logins.labels(result="fail").inc()
         if err == "locked":
@@ -101,7 +105,7 @@ async def login(request: Request) -> Response:
             err = "Too many failed attempts. Try again later."
         return render(request, "login.html", 401, next=nxt, username=username, error=err)
     if needs_second_factor(request, u):
-        resp = redirect(request, f"/login/mfa?next={nxt}")
+        resp = redirect(request, f"/login/mfa?next={quote(nxt, safe='')}")
         _start_session(request, u, resp, pending=True)
         return resp
     resp = redirect(request, nxt)
@@ -134,8 +138,11 @@ async def mfa_submit(request: Request) -> Response:
     if u is None or cx.session is None:
         return redirect(request, "/login")
     check_csrf(request, data.get("csrf"))
-    if not login_limiter.hit(f"mfa:{u['id']}") or not u["totp_secret"]:
-        return redirect(request, "/login", "Too many attempts. Sign in again.")
+    if not account_limiter.hit(f"mfa:{u['id']}") or not u["totp_secret"]:
+        c.store.delete_session(cx.session.id)
+        resp = redirect(request, "/login", "Too many attempts. Sign in again.")
+        clear_session_cookie(request, resp)
+        return resp
     step = totp.verify(u["totp_secret"], str(data.get("code", "")), u["totp_last_step"])
     if step is None:
         return render(
@@ -168,16 +175,20 @@ def _cookie(request: Request) -> str:
 async def passkey_begin(request: Request) -> JSONResponse:
     c = core(request)
     cx = ctx(request)
-    if not passkey_begin_limiter.hit(f"ip:{client_ip(request)}"):
+    if not passkey_begin_limiter.hit(rate_key(client_ip(request))):
         return JSONResponse({"detail": "Too many attempts. Wait a few minutes."}, 429)
     allowed = None
     if cx.pending_user is not None:
         allowed = [bytes(p["public_key"]) for p in c.store.passkeys(cx.pending_user["id"])]
-    handle, options = c.passkeys.begin_authentication(allowed)
+    # A passkey that is the whole sign-in must verify the person; after a password it's the
+    # second factor and may skip that (e.g. a security key without a PIN).
+    handle, options = c.passkeys.begin_authentication(allowed, require_uv=cx.pending_user is None)
     return JSONResponse({"handle": handle, "options": options})
 
 
-def _verify_passkey(request: Request, body: dict[str, Any], expect_user: int | None) -> sqlite3.Row:
+def _verify_passkey(
+    request: Request, body: dict[str, Any], expect_user: int | None, *, require_uv: bool = True
+) -> sqlite3.Row:
     c = core(request)
     cred = body.get("credential") or {}
     cred_id = c.passkeys.credential_id_of(cred)
@@ -187,7 +198,7 @@ def _verify_passkey(request: Request, body: dict[str, Any], expect_user: int | N
     if expect_user is not None and pk["user_id"] != expect_user:
         raise PasskeyError("That passkey belongs to a different account.")
     a = c.passkeys.finish_authentication(
-        str(body.get("handle", "")), cred, bytes(pk["public_key"]), pk["sign_count"]
+        str(body.get("handle", "")), cred, bytes(pk["public_key"]), pk["sign_count"], require_uv=require_uv
     )
     owner = user_id_from_handle(a.user_handle)
     if owner is not None and owner != pk["user_id"]:
@@ -221,7 +232,7 @@ async def passkey_finish(request: Request) -> JSONResponse:
     nxt = safe_next(body.get("next"))
     expect = cx.pending_user["id"] if cx.pending_user is not None else None
     try:
-        u = _verify_passkey(request, body, expect)
+        u = _verify_passkey(request, body, expect, require_uv=expect is None)
     except PasskeyError as e:
         c.metrics.logins.labels(result="fail").inc()
         return _passkey_failure(request, e, "sign-in")
@@ -231,8 +242,7 @@ async def passkey_finish(request: Request) -> JSONResponse:
         _logged_in(request, u, "password + passkey")
         set_session_cookie(request, resp, request.cookies[_cookie(request)], SESSION_DAYS[u["role"]] * 86400)
     else:
-        if u["totp_secret"] and u["role"] != "admin":
-            pass  # a passkey is itself a strong, phishing-resistant factor
+        # A user-verified passkey is itself two factors (the device, plus its PIN or biometric).
         token, s = c.store.create_session(
             c.clock.now(), user=u, ip=client_ip(request), user_agent=request.headers.get("user-agent", "")
         )
@@ -268,9 +278,10 @@ async def reauth(request: Request) -> Response:
     assert u is not None and cx.session is not None
     nxt = safe_next(data.get("next"), "/admin")
     has_pk = bool(c.store.passkeys(u["id"]))
-    if not login_limiter.hit(f"reauth:{u['id']}"):
+    if not account_limiter.hit(f"reauth:{u['id']}"):
         return redirect(request, "/logout-now")
-    ok_pw, _ = c.store.check_login(u["username"], str(data.get("password", "")), c.clock.now())
+    password = str(data.get("password", ""))
+    ok_pw, _ = await off_loop(c.store.check_login, u["username"], password, c.clock.now())
     ok = ok_pw is not None
     if ok and u["totp_secret"]:
         step = totp.verify(u["totp_secret"], str(data.get("code", "")), u["totp_last_step"])

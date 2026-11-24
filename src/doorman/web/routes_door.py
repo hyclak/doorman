@@ -18,7 +18,9 @@ from doorman.web.deps import (
     client_ip,
     core,
     ctx,
+    off_loop,
     pin_limiter,
+    rate_key,
     redirect,
     render,
     require_login,
@@ -155,16 +157,20 @@ async def guest_redeem(request: Request, token: str) -> Response:
     if link is None or info.get("problem"):
         return render(request, "guest.html", 400, token=token, **info)
     data = await request.form()
-    if not pin_limiter.hit(f"ip:{ip}"):
+    if not pin_limiter.hit(rate_key(ip)):
         return render(
             request, "guest.html", 429, token=token, **info, error="Too many attempts. Wait a few minutes."
         )
-    ok, locked = c.store.redeem_link(link, str(data.get("pin", "")))
+    result = await off_loop(c.store.redeem_link, link["id"], str(data.get("pin", "")))
     now = c.clock.now()
     who = link["display_name"] or link["username"]
-    if not ok:
+    if result == "unusable":
+        fresh = c.store.link(link["id"])
+        problem = (c.store.link_problem(fresh) if fresh else None) or "This link isn't valid."
+        return render(request, "guest.html", 403, token=token, **{**info, "problem": problem})
+    if result != "ok":
         c.store.audit(now, "link", who, "link.bad_pin", {"link": link["id"]}, link["id"], ip)
-        if locked:
+        if result == "locked":
             c.notifier.publish(
                 EventType.SECURITY, f"Guest link locked: {who}", f"Too many wrong PINs from {ip}."
             )

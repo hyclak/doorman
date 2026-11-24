@@ -23,13 +23,14 @@ class SoftAuthenticator:
         self.cred_id = os.urandom(32)
         self.counter = 0
         self.handle = None
+        self.uv = True  # False: a security key with no PIN set (user presence only)
 
     def _cose(self):
         n = self.key.public_key().public_numbers()
         return {1: 2, 3: -7, -1: 1, -2: n.x.to_bytes(32, "big"), -3: n.y.to_bytes(32, "big")}
 
     def _auth_data(self, rp_id, attested):
-        flags = 0x01 | 0x04 | (0x40 if attested else 0)  # UP | UV | AT
+        flags = 0x01 | (0x04 if self.uv else 0) | (0x40 if attested else 0)  # UP | UV | AT
         out = hashlib.sha256(rp_id.encode()).digest() + bytes([flags]) + struct.pack(">I", self.counter)
         if attested:
             out += (
@@ -81,7 +82,7 @@ def pk():
 
 def register(pk, auth):
     handle, options = pk.begin_registration(7, "alice", "Alice", existing=[])
-    return pk.finish_registration(handle, auth.create(options))
+    return pk.finish_registration(handle, auth.create(options), 7)
 
 
 def test_register_and_authenticate(pk):
@@ -101,7 +102,7 @@ def test_wrong_origin_rejected(pk):
     auth = SoftAuthenticator()
     handle, options = pk.begin_registration(7, "alice", "Alice", existing=[])
     with pytest.raises(PasskeyError):
-        pk.finish_registration(handle, auth.create(options, origin="https://evil.example"))
+        pk.finish_registration(handle, auth.create(options, origin="https://evil.example"), 7)
 
 
 def test_state_is_single_use(pk):

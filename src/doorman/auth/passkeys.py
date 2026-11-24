@@ -33,6 +33,9 @@ from fido2.webauthn import (
 
 # Long enough for the sign-in page's background (autofill) request to sit while someone types.
 STATE_TTL_S = 600
+# Pending ceremonies kept at once; beyond this the oldest are dropped (never all of them, so a
+# flood of begin requests can't cancel someone's sign-in that is already in progress).
+MAX_STATES = 1000
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,10 @@ def user_id_from_handle(handle: bytes | None) -> int | None:
         return None
 
 
+def _auth_kind(require_uv: bool) -> str:
+    return "auth-uv" if require_uv else "auth-2fa"
+
+
 class Passkeys:
     def __init__(self, rp_id: str, rp_name: str, origin: str) -> None:
         self.rp_id = rp_id
@@ -96,8 +103,8 @@ class Passkeys:
         now = time.monotonic()
         with self._lock:
             self._states = {k: v for k, v in self._states.items() if now - v[0] < STATE_TTL_S}
-            if len(self._states) > 1000:
-                self._states.clear()
+            while len(self._states) >= MAX_STATES:
+                del self._states[next(iter(self._states))]  # dicts keep insertion order: oldest first
             self._states[handle] = (now, kind, state)
         return handle
 
@@ -121,10 +128,11 @@ class Passkeys:
             resident_key_requirement=ResidentKeyRequirement.PREFERRED,
             user_verification=UserVerificationRequirement.PREFERRED,
         )
-        return self._put("reg", state), dict(options)
+        return self._put(f"reg:{user_id}", state), dict(options)
 
-    def finish_registration(self, handle: str, response: dict[str, Any]) -> NewPasskey:
-        state = self._take(handle, "reg")
+    def finish_registration(self, handle: str, response: dict[str, Any], user_id: int) -> NewPasskey:
+        # The handle only completes for the account that started it.
+        state = self._take(handle, f"reg:{user_id}")
         try:
             auth_data = self.server.register_complete(state, response)
         except Exception as e:  # fido2 raises ValueError/KeyError/etc. on bad input
@@ -150,13 +158,20 @@ class Passkeys:
 
     # -- authentication -------------------------------------------------------------------------
 
-    def begin_authentication(self, allowed: list[bytes] | None = None) -> tuple[str, dict[str, Any]]:
-        """``allowed`` = stored credential_data blobs; None lets any discoverable passkey answer."""
+    def begin_authentication(
+        self, allowed: list[bytes] | None = None, *, require_uv: bool = True
+    ) -> tuple[str, dict[str, Any]]:
+        """``allowed`` = stored credential_data blobs; None lets any discoverable passkey answer.
+
+        ``require_uv``: the authenticator must verify the person (PIN, fingerprint, face). Required
+        whenever the passkey is the whole sign-in (passwordless, re-auth); a passkey that is only
+        the second step after a password may skip it. The two kinds of request get different
+        handles, so one can't be finished as the other.
+        """
         creds = [AttestedCredentialData(c) for c in allowed] if allowed else None
-        options, state = self.server.authenticate_begin(
-            credentials=creds, user_verification=UserVerificationRequirement.PREFERRED
-        )
-        return self._put("auth", state), dict(options)
+        uv = UserVerificationRequirement.REQUIRED if require_uv else UserVerificationRequirement.PREFERRED
+        options, state = self.server.authenticate_begin(credentials=creds, user_verification=uv)
+        return self._put(_auth_kind(require_uv), state), dict(options)
 
     @staticmethod
     def credential_id_of(response: dict[str, Any]) -> bytes:
@@ -166,9 +181,15 @@ class Passkeys:
             raise PasskeyError("Malformed passkey response.") from e
 
     def finish_authentication(
-        self, handle: str, response: dict[str, Any], credential_data: bytes, stored_sign_count: int
+        self,
+        handle: str,
+        response: dict[str, Any],
+        credential_data: bytes,
+        stored_sign_count: int,
+        *,
+        require_uv: bool = True,
     ) -> Assertion:
-        state = self._take(handle, "auth")
+        state = self._take(handle, _auth_kind(require_uv))
         try:
             parsed = AuthenticationResponse.from_dict(response)
             self.server.authenticate_complete(state, [AttestedCredentialData(credential_data)], response)

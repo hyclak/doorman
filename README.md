@@ -105,6 +105,10 @@ sudo doorman reset-mfa <username>
 sudo doorman config-check
 ```
 
+```bash
+sudo doorman version
+```
+
 ### Upgrade notes
 
 - **MQTT commands are off by default.** `mqtt.allow_commands` now defaults to `false`. MQTT commands

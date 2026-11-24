@@ -94,6 +94,13 @@ sudo doorman create-admin <username>
 sudo doorman set-password <username>
 ```
 
+If someone loses their passkey or authenticator app, this removes both and signs them out. They
+can then sign in with their password and add new ones:
+
+```bash
+sudo doorman reset-mfa <username>
+```
+
 ```bash
 sudo doorman config-check
 ```

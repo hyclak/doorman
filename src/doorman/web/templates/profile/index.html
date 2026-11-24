@@ -32,6 +32,7 @@
     <button type="button" class="btn-{{ 'primary' if needs_mfa else 'secondary' }}" data-passkey-register>Add a passkey</button>
   </div>
   <p class="hint" data-no-passkey hidden>This browser doesn't support passkeys.</p>
+  <div data-passkey-accepted='{{ passkey_accepted | tojson }}' hidden></div>
 
   <h3>Authenticator app</h3>
   {% if u.totp_secret %}

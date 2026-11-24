@@ -21,7 +21,7 @@ if not fido2.features.webauthn_json_mapping._enabled:
     fido2.features.webauthn_json_mapping.enabled = True
 
 from fido2.server import Fido2Server
-from fido2.utils import websafe_decode
+from fido2.utils import websafe_decode, websafe_encode
 from fido2.webauthn import (
     AttestedCredentialData,
     AuthenticationResponse,
@@ -31,7 +31,8 @@ from fido2.webauthn import (
     UserVerificationRequirement,
 )
 
-STATE_TTL_S = 300
+# Long enough for the sign-in page's background (autofill) request to sit while someone types.
+STATE_TTL_S = 600
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,18 @@ class PasskeyError(Exception):
     pass
 
 
+class UnknownPasskey(PasskeyError):
+    """The browser offered a passkey this doorman has no record of (deleted, or from another
+    install that used the same site name). The browser can be told to stop offering it."""
+
+    def __init__(self, credential_id: bytes) -> None:
+        super().__init__(
+            "This passkey isn't registered with doorman. Your password manager may be offering an "
+            "old one for this site: delete it there, or sign in with your password and add a new one."
+        )
+        self.credential_id = credential_id
+
+
 def user_handle(user_id: int) -> bytes:
     return f"doorman-user-{user_id}".encode()
 
@@ -67,6 +80,7 @@ def user_id_from_handle(handle: bytes | None) -> int | None:
 
 class Passkeys:
     def __init__(self, rp_id: str, rp_name: str, origin: str) -> None:
+        self.rp_id = rp_id
         self.origin = origin
         self.server = Fido2Server(
             PublicKeyCredentialRpEntity(id=rp_id, name=rp_name),
@@ -119,6 +133,20 @@ class Passkeys:
         if cred is None:
             raise PasskeyError("The authenticator didn't return a credential.")
         return NewPasskey(bytes(cred.credential_id), bytes(cred), auth_data.counter)
+
+    # -- Signal API payloads ----------------------------------------------------------------------
+    # Browsers and password managers that support the WebAuthn Signal API use these to hide
+    # passkeys the server no longer accepts, so stale ones stop being offered at sign-in.
+
+    def signal_unknown(self, credential_id: bytes) -> dict[str, str]:
+        return {"rpId": self.rp_id, "credentialId": websafe_encode(credential_id)}
+
+    def signal_accepted(self, user_id: int, credential_ids: list[bytes]) -> dict[str, Any]:
+        return {
+            "rpId": self.rp_id,
+            "userId": websafe_encode(user_handle(user_id)),
+            "allAcceptedCredentialIds": [websafe_encode(c) for c in credential_ids],
+        }
 
     # -- authentication -------------------------------------------------------------------------
 

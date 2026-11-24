@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from typing import Any
 
@@ -9,7 +10,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response
 
 from doorman.auth import totp
-from doorman.auth.passkeys import PasskeyError, user_id_from_handle
+from doorman.auth.passkeys import PasskeyError, UnknownPasskey, user_id_from_handle
 from doorman.notify import EventType
 from doorman.store import SESSION_DAYS
 from doorman.web.deps import (
@@ -20,6 +21,7 @@ from doorman.web.deps import (
     ctx,
     form,
     login_limiter,
+    passkey_begin_limiter,
     redirect,
     render,
     require_user,
@@ -28,6 +30,7 @@ from doorman.web.deps import (
 )
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 def needs_second_factor(request: Request, u: sqlite3.Row) -> bool:
@@ -165,7 +168,7 @@ def _cookie(request: Request) -> str:
 async def passkey_begin(request: Request) -> JSONResponse:
     c = core(request)
     cx = ctx(request)
-    if not login_limiter.hit(f"ip:{client_ip(request)}"):
+    if not passkey_begin_limiter.hit(f"ip:{client_ip(request)}"):
         return JSONResponse({"detail": "Too many attempts. Wait a few minutes."}, 429)
     allowed = None
     if cx.pending_user is not None:
@@ -179,8 +182,10 @@ def _verify_passkey(request: Request, body: dict[str, Any], expect_user: int | N
     cred = body.get("credential") or {}
     cred_id = c.passkeys.credential_id_of(cred)
     pk = c.store.passkey_by_credential(cred_id)
-    if pk is None or (expect_user is not None and pk["user_id"] != expect_user):
-        raise PasskeyError("This passkey isn't registered here.")
+    if pk is None:
+        raise UnknownPasskey(cred_id)
+    if expect_user is not None and pk["user_id"] != expect_user:
+        raise PasskeyError("That passkey belongs to a different account.")
     a = c.passkeys.finish_authentication(
         str(body.get("handle", "")), cred, bytes(pk["public_key"]), pk["sign_count"]
     )
@@ -194,6 +199,20 @@ def _verify_passkey(request: Request, body: dict[str, Any], expect_user: int | N
     return u
 
 
+def _accepted(request: Request, user_id: int) -> dict[str, Any]:
+    c = core(request)
+    return c.passkeys.signal_accepted(user_id, [bytes(p["credential_id"]) for p in c.store.passkeys(user_id)])
+
+
+def _passkey_failure(request: Request, e: PasskeyError, flow: str) -> JSONResponse:
+    c = core(request)
+    out: dict[str, Any] = {"detail": str(e)}
+    if isinstance(e, UnknownPasskey):
+        out["unknown"] = c.passkeys.signal_unknown(e.credential_id)
+    log.warning("passkey %s failed from %s: %s", flow, client_ip(request), e)
+    return JSONResponse(out, 400)
+
+
 @router.post("/login/passkey/finish")
 async def passkey_finish(request: Request) -> JSONResponse:
     c = core(request)
@@ -205,8 +224,8 @@ async def passkey_finish(request: Request) -> JSONResponse:
         u = _verify_passkey(request, body, expect)
     except PasskeyError as e:
         c.metrics.logins.labels(result="fail").inc()
-        return JSONResponse({"detail": str(e)}, 400)
-    resp = JSONResponse({"redirect": nxt})
+        return _passkey_failure(request, e, "sign-in")
+    resp = JSONResponse({"redirect": nxt, "accepted": _accepted(request, u["id"])})
     if cx.pending_user is not None and cx.session is not None:
         c.store.complete_mfa(cx.session, u, c.clock.now())
         _logged_in(request, u, "password + passkey")
@@ -293,9 +312,11 @@ async def reauth_passkey_finish(request: Request) -> JSONResponse:
     try:
         _verify_passkey(request, body, cx.user["id"])
     except PasskeyError as e:
-        return JSONResponse({"detail": str(e)}, 400)
+        return _passkey_failure(request, e, "re-authentication")
     c.store.mark_reauth(cx.session, c.clock.now())
-    return JSONResponse({"redirect": safe_next(body.get("next"), "/admin")})
+    return JSONResponse(
+        {"redirect": safe_next(body.get("next"), "/admin"), "accepted": _accepted(request, cx.user["id"])}
+    )
 
 
 @router.post("/logout")

@@ -18,7 +18,9 @@ def provisioning_uri(secret: str, username: str, issuer: str = "doorman") -> str
 
 def qr_svg(uri: str) -> str:
     """Inline SVG QR code (no external services)."""
-    return segno.make(uri, error="m").svg_inline(scale=5, dark="currentColor", light=None)
+    # Plain black on white: QR scanners need the contrast in dark mode too, and Debian's segno
+    # rejects CSS keywords such as "currentColor".
+    return segno.make(uri, error="m").svg_inline(scale=5, dark="#000000", light="#ffffff")
 
 
 def verify(secret: str, code: str, last_step: int, now: float | None = None) -> int | None:

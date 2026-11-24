@@ -135,3 +135,10 @@ def test_signature_from_other_key_rejected(pk):
 def test_user_handle_roundtrip():
     assert user_id_from_handle(user_handle(42)) == 42
     assert user_id_from_handle(b"other") is None
+
+
+def test_signal_payloads(pk):
+    assert pk.signal_unknown(b"\x01\x02") == {"rpId": RP_ID, "credentialId": "AQI"}
+    out = pk.signal_accepted(7, [b"\x01\x02"])
+    assert out["rpId"] == RP_ID and out["allAcceptedCredentialIds"] == ["AQI"]
+    assert user_id_from_handle(websafe_decode(out["userId"])) == 7

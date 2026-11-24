@@ -241,6 +241,11 @@ class Store:
     def delete_passkey(self, passkey_id: int, user_id: int) -> None:
         self.db.execute("DELETE FROM passkeys WHERE id = ? AND user_id = ?", (passkey_id, user_id))
 
+    def delete_user_passkeys(self, user_id: int) -> int:
+        n = len(self.passkeys(user_id))
+        self.db.execute("DELETE FROM passkeys WHERE user_id = ?", (user_id,))
+        return n
+
     def has_second_factor(self, user: sqlite3.Row) -> bool:
         return bool(user["totp_secret"]) or bool(self.passkeys(user["id"]))
 

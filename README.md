@@ -3,6 +3,17 @@
 A self-hosted garage door controller for a Raspberry Pi: one relay, one reed switch, and a web app
 that is safe to put on the internet.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/door-desktop-dark.png">
+    <img src="docs/images/door-desktop-light.png" width="560" alt="The door page in a desktop browser: the door is closed, with an Open button, recent activity and the Pi's health">
+  </picture>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/door-phone-dark.png">
+    <img src="docs/images/door-phone-light.png" width="162" alt="The door page on a phone">
+  </picture>
+</p>
+
 - **Accounts and roles**: Admin, Household, Scheduled and Viewer. Access is denied by default, and
   Scheduled users can operate the door only inside their allow windows (one-off, daily or weekly).
 - **Guest links**: a one-time URL plus a PIN, tied to a user and a time block. A guest who signed in

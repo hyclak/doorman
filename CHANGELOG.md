@@ -6,6 +6,9 @@ in the same PR as the change; it is renamed to the version when releasing (see t
 
 ## [Unreleased]
 
+### Changed
+- The README shows the door page on a desktop browser and a phone, in light and dark mode.
+
 ## [0.3.0] - 2026-11-24
 
 ### Added

@@ -102,7 +102,7 @@ def test_personal_url_allowed(url):
         "json://127.0.0.1:2019/stop?method=POST",  # Caddy admin API
         "json://example.com/hook",
         "jsons://example.com/hook",
-        "xml://10.10.40.1/",
+        "xml://192.168.1.1/",
         "form://192.168.1.1/",
         "ntfys://ntfy.internal.example/topic",
         "ntfys://attacker.example/t",  # public, but could 307-redirect or DNS-rebind to the LAN
@@ -125,7 +125,7 @@ def test_personal_url_allowed(url):
         "https://example.com/hook",
         "https://discord.com.evil.example/api/webhooks/1/a",
         "https://discord.com:2019/api/webhooks/1/a",
-        "mailto://user:pass@example.com?smtp=10.10.40.1",
+        "mailto://user:pass@example.com?smtp=192.168.1.1",
     ],
 )
 def test_personal_url_refused(url):

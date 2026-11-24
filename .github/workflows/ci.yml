@@ -32,6 +32,8 @@ jobs:
         run: |
           ruff check src tests
           ruff format --check src tests
+      - name: Changelog has an entry for the package version
+        run: python scripts/changelog.py check
       - name: Type check
         run: mypy
       - name: Test

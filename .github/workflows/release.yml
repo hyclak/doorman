@@ -30,6 +30,13 @@ jobs:
           pkg=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('src/doorman/__init__.py').read())[1])")
           test "v${pkg}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != package v${pkg}"; exit 1; }
 
+      - name: Check the changelog and extract the release notes
+        run: |
+          python3 scripts/changelog.py check
+          pkg=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('src/doorman/__init__.py').read())[1])")
+          python3 scripts/changelog.py notes "v${pkg}" > RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
+
       - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
@@ -80,4 +87,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         with:
           files: dist/*
+          # The changelog entry, followed by GitHub's list of merged PRs.
+          body_path: RELEASE_NOTES.md
           generate_release_notes: true

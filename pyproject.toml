@@ -4,7 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "doorman"
-version = "0.2.1"
+# Read from src/doorman/__init__.py (__version__), the only place it is set.
+dynamic = ["version"]
 description = "Self-hosted garage door controller for a Raspberry Pi: RBAC, scheduled guest access, alerts, Home Assistant API."
 readme = "README.md"
 license = "MIT"
@@ -18,6 +19,9 @@ dependencies = []
 
 [project.scripts]
 doorman = "doorman.__main__:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "doorman.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["src"]

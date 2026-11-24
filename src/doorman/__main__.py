@@ -61,7 +61,13 @@ def main(argv: list[str] | None = None) -> None:
     b = sub.add_parser("backup", help="write a consistent snapshot of the database")
     b.add_argument("dest")
     sub.add_parser("config-check", help="validate the configuration and exit")
+    sub.add_parser("version", help="print the installed version and exit")
     args = ap.parse_args(argv)
+
+    # Before loading the config, so it works without a config file or secrets.
+    if args.cmd == "version":
+        print(__version__)
+        return
 
     from doorman.config import load_config
 

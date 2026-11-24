@@ -13,7 +13,7 @@ from fido2.utils import websafe_decode, websafe_encode
 
 from doorman.auth.passkeys import PasskeyError, Passkeys, user_handle, user_id_from_handle
 
-ORIGIN = "https://door.example.org:3667"
+ORIGIN = "https://door.example.org:8443"
 RP_ID = "door.example.org"
 
 

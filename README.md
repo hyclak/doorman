@@ -75,12 +75,12 @@ doorman targets **Raspberry Pi OS 13 (trixie)**. Runtime dependencies come from 
 `apprise` is installed from PyPI, with `--no-deps`. This avoids compiling Rust or C extensions on
 ARMv6.
 
-Deployment is handled by the `app_doorman` Ansible role in the `reversion-network` repository. It
+Deployment is handled by an Ansible role (`app_doorman`) kept in a separate repository. It
 installs the wheel from a GitHub release, writes `/etc/doorman/doorman.toml` (see
 [doorman.example.toml](doorman.example.toml)) and `/etc/doorman/secrets.env`, and runs:
 
 - `doorman serve --json-logs` under systemd as the `doorman` user, with hardening and the watchdog;
-- Caddy in front of it for TLS (Route53 DNS-01) on `:3667`, plus a LAN-only listener for `/metrics`;
+- Caddy in front of it for TLS (Route53 DNS-01) on a public port, plus a LAN-only listener for `/metrics`;
 - a nightly SQLite backup (`doorman backup`) pushed to the NAS.
 
 Useful commands on the Pi. The role installs `/usr/local/bin/doorman`, a wrapper that runs the CLI
@@ -103,6 +103,10 @@ sudo doorman reset-mfa <username>
 
 ```bash
 sudo doorman config-check
+```
+
+```bash
+sudo doorman version
 ```
 
 ### Upgrade notes
@@ -134,11 +138,11 @@ module, and attaches both to a GitHub release along with SHA-256 checksums. To d
 Create a token under **Admin → API tokens** with the `read` and/or `operate` scope, then:
 
 ```bash
-curl -H "Authorization: Bearer dm_..." https://door.reversion.org:3667/api/v1/status
+curl -H "Authorization: Bearer dm_..." https://door.example.com:8443/api/v1/status
 ```
 
 ```bash
-curl -X POST -H "Authorization: Bearer dm_..." https://door.reversion.org:3667/api/v1/door/close
+curl -X POST -H "Authorization: Bearer dm_..." https://door.example.com:8443/api/v1/door/close
 ```
 
 `POST /api/v1/door/{open,close,crack}` goes through the same access checks, audit log and

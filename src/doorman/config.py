@@ -22,7 +22,7 @@ class ServerConfig:
     # Origin users see in their browser (scheme://host[:port]). Used for WebAuthn,
     # guest-link URLs and the Origin check on form posts.
     public_origin: str = "http://localhost:8000"
-    # WebAuthn relying-party id: the bare hostname, e.g. "door.reversion.org".
+    # WebAuthn relying-party id: the bare hostname, e.g. "door.example.com".
     rp_id: str = "localhost"
     rp_name: str = "doorman"
     # Secure cookies need HTTPS. Only turn off for local development.

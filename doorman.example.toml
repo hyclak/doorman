@@ -5,14 +5,14 @@
 #   DOORMAN_MQTT_PASSWORD    MQTT broker password (optional)
 
 db_path = "/var/lib/doorman/doorman.sqlite"
-timezone = "America/New_York"
+timezone = "UTC"             # IANA name of your local zone, e.g. "Europe/London"
 backup_status_file = "/var/lib/doorman/last-backup-ok"
 
 [server]
 host = "127.0.0.1"            # Caddy terminates TLS and proxies here
 port = 8000
-public_origin = "https://door.reversion.org:3667"
-rp_id = "door.reversion.org"  # passkeys are bound to this hostname
+public_origin = "https://door.example.com:8443"
+rp_id = "door.example.com"    # passkeys are bound to this hostname
 cookie_secure = true
 trusted_proxies = ["127.0.0.1", "::1"]
 
@@ -22,7 +22,7 @@ chip = 0
 relay_pin = 7                 # BCM numbering
 reed_pin = 18
 reed_closed_value = 0         # reed reads 0 when the door is closed
-reed_pull = "as-is"           # "up", "down" or "as-is"
+reed_pull = "none"            # "none", "up", "down" or "as-is"; "none" if the reed has an external resistor
 relay_mode = "open_drain"     # press = drive low, release = input (matches the old GaragePi)
 simulate_door = false
 
